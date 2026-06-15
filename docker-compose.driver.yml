@@ -1,0 +1,28 @@
+version: "3.9"
+
+# =====================================================================
+# CHẠY TRÊN MÁY THÀNH VIÊN — Driver Service
+#
+# 1. Copy file .env.driver → .env, điền GATEWAY_HOST
+# 2. Lệnh: docker compose -f docker-compose.driver.yml up -d
+# =====================================================================
+
+services:
+  driver-service:
+    build:
+      context: ./services/driver-service
+    container_name: adas-driver
+    ports:
+      - "8001:8001"
+    environment:
+      EAR_THRESHOLD: ${EAR_THRESHOLD:-0.22}
+      DROWSY_FRAMES: ${DROWSY_FRAMES:-60}
+      CAMERA_ID: ${CAMERA_ID:-0}
+      # Trỏ về IP máy mạnh đang chạy aggregator
+      AGGREGATOR_URL: http://${GATEWAY_HOST:-192.168.1.100}:8003/event
+      DISPLAY: ${DISPLAY:-:0}
+    devices:
+      - /dev/video0:/dev/video0
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    restart: unless-stopped
