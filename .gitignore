@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Env
+.venv/
+venv/
+
+# VSCode
+.vscode/
+
+# Models
+*.task
+*.onnx
+*.pt
+*.pth
+
+# Logs
+logs/
+*.log
+
+# Docker
+.env
+
+# OS
+.DS_Store
+Thumbs.db
