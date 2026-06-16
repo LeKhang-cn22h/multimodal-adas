@@ -60,18 +60,11 @@ services:
     ports:
       - "8001:8001"
     environment:
-      EAR_THRESHOLD: 0.22
-      DROWSY_FRAMES: 60
-      CAMERA_ID: 0
+      EAR_THRESHOLD: ${EAR_THRESHOLD:-0.22}
+      DROWSY_FRAMES: ${DROWSY_FRAMES:-60}
+      CAMERA_ID: ${CAMERA_ID:-0}
       AGGREGATOR_URL: http://aggregator-service:8003/event
-    # Cần truy cập camera thật
-    devices:
-      - /dev/video0:/dev/video0
-    # Cần X11 để hiện cửa sổ OpenCV (Linux)
-    environment:
       DISPLAY: ${DISPLAY:-:0}
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix
     networks:
       - adas-net
     depends_on:
