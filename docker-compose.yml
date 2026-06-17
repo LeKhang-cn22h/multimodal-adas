@@ -118,3 +118,19 @@ services:
     depends_on:
       - aggregator-service
     restart: unless-stopped
+
+  # ─── Video Service (placeholder) ──────────────────────────────────
+  video-service:
+    build:
+      context: ./services/video-service
+    container_name: adas-video
+    ports:
+      - "8006:8006"
+    environment:
+      PORT: 8006
+      AGGREGATOR_URL: http://aggregator-service:8003/event
+    networks:
+      - adas-net
+    depends_on:
+      - aggregator-service
+    restart: unless-stopped
