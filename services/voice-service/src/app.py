@@ -12,12 +12,26 @@ from transformers import pipeline
 from pydub import AudioSegment
 
 
+'''
+api giong noi
+url /ttsVoice
+
+request param toStream : bool
+input json 
+{
+    "text_input"
+}
+
+respone: neu toStream laf true, respone tra ve la cac byte am thanh, 
+neu la false thi tra ve file mp3
+'''
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
+os.environ["HF_HUB_DISABLE_HTTP2"] = "1"
 os.environ["HF_HOME"] = "./HF_Cache"
 
 # ---------------------------------------------------------
