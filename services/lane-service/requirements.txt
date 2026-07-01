@@ -4,5 +4,10 @@ opencv-python-headless==4.10.0.84
 numpy
 python-multipart==0.0.9
 httpx
-gradio==4.44.1
-huggingface_hub<0.27.0
+gradio
+
+# YOLOv11 - phat hien phuong tien / vat can
+# torch/torchvision ban CPU, doi sang ban CUDA neu chay tren may co GPU
+torch
+torchvision
+ultralytics
