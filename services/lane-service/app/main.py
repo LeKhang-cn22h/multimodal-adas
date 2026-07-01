@@ -106,34 +106,53 @@ async def analyze_video(file: UploadFile = File(...)):
             os.remove(temp_path)
 
 
+# Đường dẫn video đang phát stream mặc định (biến toàn cục)
+current_stream_path = os.path.join(APP_DIR, "..", "data", "test_videos", "solidWhiteRight.mp4")
+
+def set_active_video(video_path: str):
+    global current_stream_path
+    current_stream_path = video_path
+    print(f"[Stream] Da chuyen luong sang video: {video_path}")
+
 @app.get("/stream")
 def stream_video():
     """Endpoint cung cấp MJPEG live stream của video đã chạy qua pipeline (YOLO + Lane Overlay)."""
-    video_path = os.path.join(APP_DIR, "..", "data", "test_videos", "solidWhiteRight.mp4")
-    
     def generate_frames():
+        import time
+        last_video = None
+        cap = None
         while True:
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                break
+            global current_stream_path
+            if current_stream_path != last_video:
+                if cap is not None:
+                    cap.release()
+                last_video = current_stream_path
+                cap = cv2.VideoCapture(last_video)
                 
-            while True:
-                success, frame = cap.read()
-                if not success:
-                    break
+            if cap is None or not cap.isOpened():
+                time.sleep(0.1)
+                last_video = None
+                continue
                 
-                # Chạy pipeline vẽ đè kết quả trực quan (visualize=True)
-                global_pipeline.process_frame(frame, visualize=True)
+            success, frame = cap.read()
+            if not success:
+                # Lặp lại video
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                continue
                 
-                # Mã hóa JPEG
-                ret, buffer = cv2.imencode(".jpg", frame)
-                if not ret:
-                    continue
-                    
-                frame_bytes = buffer.tobytes()
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-                       
+            # Chạy pipeline vẽ đè kết quả trực quan (visualize=True)
+            global_pipeline.process_frame(frame, visualize=True)
+            
+            # Mã hóa JPEG
+            ret, buffer = cv2.imencode(".jpg", frame)
+            if not ret:
+                continue
+                
+            frame_bytes = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                   
+        if cap is not None:
             cap.release()
             
     return StreamingResponse(
@@ -146,6 +165,8 @@ def stream_video():
 def gradio_analyze_wrapper(video_path: str, filename: str = "video.mp4", max_frames: int = 30) -> dict:
     if not video_path:
         return {"error": "No video provided."}
+    # Tự động chuyển luồng stream chính sang video vừa tải lên
+    set_active_video(video_path)
     return analyze_video_file(
         video_path=video_path,
         filename=filename,
@@ -153,7 +174,7 @@ def gradio_analyze_wrapper(video_path: str, filename: str = "video.mp4", max_fra
         pipeline=global_pipeline,
     )
 
-gradio_app = create_gradio_app(gradio_analyze_wrapper)
+gradio_app = create_gradio_app(gradio_analyze_wrapper, set_active_video)
 app = gr.mount_gradio_app(app, gradio_app, path="/ui")
 
 
