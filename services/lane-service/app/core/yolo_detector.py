@@ -24,19 +24,32 @@ COCO_VEHICLE_CLASSES = {
 }
 
 
+try:
+    import torch
+    AUTO_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+except ImportError:
+    AUTO_DEVICE = "cpu"
+
+try:
+    from config import settings
+    DEFAULT_MODEL_PATH = settings.YOLO_MODEL_PATH
+    DEFAULT_CONF_THRESHOLD = settings.CONFIDENCE_THRESHOLD
+except ImportError:
+    DEFAULT_MODEL_PATH = "yolo11n.pt"
+    DEFAULT_CONF_THRESHOLD = 0.35
+
+
 class YOLODetector:
     def __init__(
         self,
-        model_path: str = "yolo11n.pt",
-        confidence_threshold: float = 0.35,
-        device: str = "cpu",
+        model_path: str = DEFAULT_MODEL_PATH,
+        confidence_threshold: float = DEFAULT_CONF_THRESHOLD,
+        device: str = AUTO_DEVICE,
     ):
         """
-        model_path: duong dan hoac ten weight. Mac dinh dung yolo11n.pt (nano,
-            nhe, phu hop CPU). Sau nay co the doi thanh
-            "models/yolo11_custom.pt" khi co model fine-tune VN.
+        model_path: duong dan hoac ten weight. Mac dinh lay tu settings.
         confidence_threshold: nguong tin cay toi thieu de giu lai detection.
-        device: "cpu" hoac "cuda:0" neu co GPU.
+        device: tu dong nhan dang cuda/cpu neu de None/Default.
         """
         self.model = YOLO(model_path)
         self.confidence_threshold = confidence_threshold

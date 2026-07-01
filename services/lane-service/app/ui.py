@@ -1,36 +1,49 @@
-import gradio as gr
 import os
+import traceback
+import gradio as gr
 
 def create_gradio_app(analyze_video_file_func):
+    """Tạo Gradio app để nhúng vào FastAPI."""
     def process(video_path):
-        import traceback
         try:
             if not video_path:
-                return {"error": "No video provided"}
+                return {"error": "No video provided. Please upload a file."}
             
-            # Gradio 4.x sometimes passes a dict for video input depending on the exact component version
             if isinstance(video_path, dict):
-                video_path = video_path.get("video", video_path)
+                video_path = video_path.get("video") or video_path.get("name", "")
                 
-            filename = os.path.basename(str(video_path))
+            video_path = str(video_path)
             
+            if not os.path.exists(video_path):
+                return {"error": f"File not found: {video_path}"}
+                
+            filename = os.path.basename(video_path)
             result = analyze_video_file_func(
-                video_path=str(video_path),
+                video_path=video_path,
                 filename=filename,
                 max_frames=30
             )
             return result
         except Exception as e:
-            print("UI Process Error:", traceback.format_exc())
-            return {
-                "error": str(e),
-                "traceback": traceback.format_exc()
-            }
+            print("[ui] Error:", traceback.format_exc())
+            return {"error": str(e), "traceback": traceback.format_exc()}
 
-    with gr.Blocks(title="Lane Service UI") as app:
-        gr.Markdown("# Lane Detection Service - Test UI")
-        gr.Markdown("Upload a video to test the Lane Service pipeline.")
+    with gr.Blocks(title="Lane & Object Detection Service") as app:
+        gr.Markdown("# 🛣️ Lane & Object Detection Service")
         
+        # Thêm phần Livestream trực quan (kết hợp hướng A và B)
+        with gr.Row():
+            with gr.Column(scale=1):
+                gr.Markdown("### 🎥 Live Stream Pipeline (YOLOv11 BBox + Lane Alpha Overlay)")
+                gr.HTML(
+                    "<div style='display: flex; justify-content: center; background-color: #1e1e1e; padding: 10px; border-radius: 8px;'>"
+                    "  <img src='/stream' style='width: 100%; max-width: 640px; border-radius: 4px; border: 1px solid #333;'>"
+                    "</div>"
+                )
+        
+        # Phần Upload Video thủ công để lấy dữ liệu JSON
+        gr.Markdown("---")
+        gr.Markdown("### 📥 Test Manual Video (Upload & Get JSON Data)")
         with gr.Row():
             with gr.Column():
                 video_input = gr.Video(label="Input Video", sources=["upload"])
