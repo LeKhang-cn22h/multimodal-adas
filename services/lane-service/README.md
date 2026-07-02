@@ -57,13 +57,116 @@ Hệ thống sử dụng **Hợp nhất Dữ liệu AI (Parallel Data Fusion)**:
 
 ## 📂 6. Cấu trúc Dự án (Project Structure)
 ```text
-computer-vision/
-├── data/                       # Chứa video test và Local Dataset
-├── models/                     # Chứa yolo11_custom.pt & deeplabv3_custom.pth
-├── src/                        # Mã nguồn chính
-│   ├── core/                   # Các module AI cốt lõi (YOLO, DeepLab, Fusion)
-│   ├── utils/                  # Hàm hỗ trợ (OpenCV, Audio Alert)
-│   └── main_pipeline.py        # Entry point của ứng dụng
-├── Dockerfile                  # Cấu hình môi trường Container
-├── requirements.txt            # Thư viện Python
+lane-service/
+├── app/                        # Mã nguồn chính của dịch vụ
+│   ├── core/                   # Các thuật toán xử lý chính (YOLO, DeepLab fusion)
+│   ├── config.py               # Cấu hình tham số dịch vụ
+│   ├── main.py                 # Điểm khởi chạy (FastAPI + Gradio)
+│   ├── pipeline.py             # Luồng xử lý phân tích làn đường
+│   ├── ui.py                   # Giao diện Gradio Dashboard
+│   ├── video_source.py         # Tiện ích đọc và xử lý khung hình video
+│   └── yolo11n.pt              # Trọng số mô hình YOLOv11 mặc định
+├── data/
+│   └── test_videos/            # Video mẫu dùng để chạy thử nghiệm và stream
+├── Dockerfile                  # Docker cấu hình môi trường Container
+├── requirements.txt            # Danh sách thư viện Python phụ thuộc
+├── test_lane_service.py        # Kịch bản kiểm thử API tự động
 └── README.md
+```
+
+---
+
+## 🚀 7. Hướng dẫn Khởi chạy & Sử dụng (Running & Usage Guide)
+
+### 📋 7.1. Yêu cầu Hệ thống & Chuẩn bị
+* **Hệ điều hành:** Windows, Linux hoặc macOS.
+* **Python version:** `3.10` hoặc `3.11` (Khuyên dùng `3.11`).
+* **Phần cứng:**
+  * **GPU NVIDIA (CUDA hỗ trợ):** Khuyên dùng khi cần chạy mượt mà theo thời gian thực (Real-time).
+  * **CPU:** Có thể chạy thử nghiệm/kiểm thử (tốc độ xử lý FPS sẽ thấp hơn).
+
+### 🛠️ 7.2. Cài đặt Môi trường Local (Windows & Linux)
+
+**Bước 1: Di chuyển vào thư mục dịch vụ**
+```bash
+cd services/lane-service
+```
+
+**Bước 2: Tạo và kích hoạt môi trường ảo (Virtual Environment)**
+* **Trên Windows (PowerShell):**
+  ```powershell
+  python -m venv .venv
+  .venv\Scripts\activate
+  ```
+* **Trên Linux / macOS:**
+  ```bash
+  python3 -m venv .venv
+  source .venv/bin/activate
+  ```
+
+**Bước 3: Cài đặt các thư viện cần thiết**
+```bash
+pip install -r requirements.txt
+```
+> [!TIP]
+> File `requirements.txt` mặc định cài đặt PyTorch phiên bản CPU. Nếu thiết bị của bạn có card đồ họa rời NVIDIA hỗ trợ CUDA, hãy cài đặt phiên bản PyTorch hỗ trợ CUDA phù hợp từ trang chủ [PyTorch](https://pytorch.org/) để tăng tốc độ xử lý AI.
+
+---
+
+### 💻 7.3. Các cách Khởi chạy Dịch vụ
+
+#### 🔹 Cách 1: Khởi chạy máy chủ Web (Giao diện Gradio Dashboard + REST API)
+Chế độ này khởi động máy chủ Web, tích hợp cả giao diện tương tác (Gradio UI) và hệ thống API FastAPI.
+
+* **Cách khởi chạy nhanh (Không cần kích hoạt môi trường ảo từ Windows Command Line):**
+  ```cmd
+  cd services\lane-service\app
+  ..\.venv\Scripts\python main.py
+  ```
+
+* **Hoặc khởi chạy từ thư mục gốc `services/lane-service` (Nếu đã kích hoạt venv):**
+  ```bash
+  python app/main.py
+  ```
+Khi hiển thị thông báo khởi chạy thành công, hãy truy cập các địa chỉ:
+* 🌐 **Giao diện Dashboard giám sát (Gradio UI):** [http://localhost:8002/ui](http://localhost:8002/ui)
+* 📖 **Tài liệu API (Swagger Docs):** [http://localhost:8002/docs](http://localhost:8002/docs)
+* 📡 **Luồng Stream trực tiếp (MJPEG stream):** [http://localhost:8002/stream](http://localhost:8002/stream)
+* 🏥 **Kiểm tra trạng thái (Health Check):** [http://localhost:8002/health](http://localhost:8002/health)
+
+#### 🔹 Cách 2: Chạy kiểm thử CLI cho một tệp tin Video cụ thể
+Nếu muốn chạy thuật toán phân tích nhanh một tệp tin video và in kết quả phát hiện vật cản ra terminal:
+```bash
+python app/main.py <đường_dẫn_video>
+```
+*Ví dụ:*
+```bash
+python app/main.py data/test_videos/solidWhiteRight.mp4
+```
+
+#### 🔹 Cách 3: Chạy bằng Docker
+Hệ thống cũng hỗ trợ đóng gói Docker để dễ dàng triển khai:
+1. **Build Docker Image:**
+   ```bash
+   docker build -t lane-service .
+   ```
+2. **Khởi chạy Container:**
+   ```bash
+   docker run -p 8002:8002 lane-service
+   ```
+
+---
+
+### 🧪 7.4. Hướng dẫn Chạy Kiểm thử Tự động (Integration Tests)
+
+Dự án có sẵn script test tự động gửi yêu cầu API lên máy chủ nhằm xác nhận tính đúng đắn của các endpoint.
+
+1. Trước hết, hãy khởi chạy dịch vụ ở **Cách 1** hoặc **Cách 3**.
+2. Mở một terminal mới (đã kích hoạt virtual environment `.venv`) và chạy:
+   ```bash
+   python test_lane_service.py
+   ```
+3. Script sẽ tự động thực hiện và thông báo kết quả của các bài test:
+   * **GET `/health`**: Kiểm tra trạng thái máy chủ.
+   * **Từ chối định dạng tệp sai (lỗi 400)**: Khi tải lên tệp tin không phải định dạng video.
+   * **POST `/analyze-video`**: Tải video mẫu `solidWhiteRight.mp4` lên máy chủ và phân tích 30 khung hình đầu tiên để nhận diện làn đường và vật cản.
