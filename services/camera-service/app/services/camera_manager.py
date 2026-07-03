@@ -1,8 +1,9 @@
-"""Thread-safe webcam manager with background capture and JPEG pre-encoding."""
+"""Thread-safe webcam manager with background capture, JPEG pre-encoding,
+and RabbitMQ frame publishing callbacks."""
 
 import threading
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 import cv2
 import numpy as np
@@ -17,7 +18,7 @@ class CameraManager:
     Continuously reads frames, stores the latest frame and its JPEG encoding
     in memory, and serves them via thread-safe accessors.
 
-    Only one CameraManager instance per process is intended.
+    Supports optional callbacks for frame publishing to RabbitMQ.
     """
 
     def __init__(self) -> None:
@@ -42,7 +43,16 @@ class CameraManager:
         self._total_frames: int = 0
         self._start_time: float = 0.0
 
+        self._on_frame_callback: Optional[Callable[[bytes, int, float], None]] = None
+
         self._logger = get_logger()
+
+    def set_on_frame_callback(self, callback: Callable[[bytes, int, float], None]) -> None:
+        """Register a callback invoked on every captured frame.
+
+        Callback signature: (jpeg_bytes: bytes, frame_id: int, timestamp: float) -> None
+        """
+        self._on_frame_callback = callback
 
     # ------------------------------------------------------------------
     # Public properties — thread-safe reads
@@ -102,12 +112,7 @@ class CameraManager:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        """Open the webcam and launch the background capture thread.
-
-        If the camera is unavailable at startup the thread still starts and
-        will attempt reconnection automatically.  The service remains healthy
-        (though degraded) and serves whatever frames become available later.
-        """
+        """Open the webcam and launch the background capture thread."""
         if self.is_running:
             self._logger.warning("CameraManager is already running")
             return
@@ -182,8 +187,8 @@ class CameraManager:
         """Main loop running in the background thread.
 
         Continuously reads frames from the webcam, encodes them to JPEG,
-        and stores the result in thread-safe properties.
-        Handles webcam disconnection with reconnection attempts.
+        stores the result in thread-safe properties, and invokes the
+        frame callback for RabbitMQ publishing.
         """
         frame_count: int = 0
         fps_window: list[float] = []
@@ -220,12 +225,20 @@ class CameraManager:
                 self._logger.warning("JPEG encode failed for frame %d", frame_count)
                 continue
 
+            jpeg_bytes = jpeg_buffer.tobytes()
+
             with self._lock:
                 self._latest_frame = frame
-                self._latest_jpeg = jpeg_buffer.tobytes()
+                self._latest_jpeg = jpeg_bytes
                 self._frame_id = frame_count
                 self._timestamp = now
                 self._total_frames = frame_count
+
+            if self._on_frame_callback is not None:
+                try:
+                    self._on_frame_callback(jpeg_bytes, frame_count, now)
+                except Exception as exc:
+                    self._logger.warning("Frame callback error: %s", exc)
 
             fps_window.append(now)
             fps_window = [t for t in fps_window if t > now - 5.0]
