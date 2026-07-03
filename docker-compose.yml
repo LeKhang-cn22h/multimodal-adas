@@ -103,21 +103,23 @@ services:
       - aggregator-service
     restart: unless-stopped
 
-  # ─── Camera Service (placeholder) ─────────────────────────────────
-  camera-service:
-    build:
-      context: ./services/camera-service
-    container_name: adas-camera
-    ports:
-      - "8005:8005"
-    environment:
-      PORT: 8005
-      AGGREGATOR_URL: http://aggregator-service:8003/event
-    networks:
-      - adas-net
-    depends_on:
-      - aggregator-service
-    restart: unless-stopped
+  # ─── Camera Service (run natively on Windows, NOT in Docker) ────
+  # Camera không thể truy cập webcam từ Docker trên Windows.
+  # Chạy camera-service trực tiếp trên máy:
+  #   cd services/camera-service
+  #   pip install -r requirements.txt
+  #   python main.py
+  # camera-service:
+  #   build:
+  #     context: ./services/camera-service
+  #   container_name: adas-camera
+  #   ports:
+  #     - "8005:8005"
+  #   environment:
+  #     PORT: 8005
+  #   networks:
+  #     - adas-net
+  #   restart: unless-stopped
 
   # ─── Video Service (placeholder) ──────────────────────────────────
   video-service:
