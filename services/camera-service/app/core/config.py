@@ -19,6 +19,14 @@ class Settings:
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     SERVICE_NAME: str = "camera-service"
 
+    RABBITMQ_HOST: str = os.getenv("RABBITMQ_HOST", "localhost")
+    RABBITMQ_PORT: int = int(os.getenv("RABBITMQ_PORT", "5672"))
+    RABBITMQ_VHOST: str = os.getenv("RABBITMQ_VHOST", "/")
+    RABBITMQ_USER: str = os.getenv("RABBITMQ_USER", "guest")
+    RABBITMQ_PASS: str = os.getenv("RABBITMQ_PASS", "guest")
+
+    SEATBELT_FRAME_INTERVAL: float = float(os.getenv("SEATBELT_FRAME_INTERVAL", "600.0"))
+
 
 @lru_cache()
 def get_settings() -> Settings:
