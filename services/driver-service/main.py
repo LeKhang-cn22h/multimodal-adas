@@ -3,6 +3,13 @@ import mediapipe as mp
 import time
 import numpy as np
 from scipy.spatial import distance
+import os
+
+# Get the absolute directory path of the current Python script
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Construct the full absolute path to the model file
+model_path = os.path.join(script_dir, "face_landmarker.task")
 
 # ==========================
 # MediaPipe Face Landmarker
@@ -15,7 +22,7 @@ VisionRunningMode = mp.tasks.vision.RunningMode
 
 options = FaceLandmarkerOptions(
     base_options=BaseOptions(
-        model_asset_path="face_landmarker.task"
+        model_asset_path=model_path
     ),
     running_mode=VisionRunningMode.VIDEO,
     num_faces=1
