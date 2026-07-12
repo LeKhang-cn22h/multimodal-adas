@@ -1,6 +1,7 @@
 ---
 description: Chuyển yêu cầu thô của người dùng thành Requirement Document chuẩn
 agent: architect
+argument-hint: "<mô tả yêu cầu thô, ngôn ngữ tự nhiên>"
 ---
 
 RUN mkdir -p .opencode/knowledge/requirements

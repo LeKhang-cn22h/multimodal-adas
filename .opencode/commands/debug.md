@@ -1,6 +1,7 @@
 ---
 description: Điều tra lỗi có hệ thống, ghi lại tiến trình vào .opencode/debug/
 agent: coder
+argument-hint: "<mô tả lỗi/triệu chứng>"
 ---
 
 RUN mkdir -p .opencode/debug

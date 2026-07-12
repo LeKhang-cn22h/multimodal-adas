@@ -16,3 +16,12 @@
 - [ ] Chiến lược scale nhiều instance driver-service (nếu cần) — PERCLOS
       hiện lưu in-memory theo từng instance, cần chuyển sang Redis nếu
       chạy nhiều replica đứng sau load balancer.
+- [ ] **ADR-003 — dời messaging/ vào services/**: Cả camera-service và
+      driver-service hiện có `app/messaging/` (connection, publisher,
+      consumer, orchestrator) nằm ngoài Layered Architecture chuẩn
+      (`api/ → services/ → repositories/`). ADR-003 cam kết dời toàn bộ
+      logic messaging vào `app/services/`, nhưng hiện chưa có Feature
+      hay Tech Solution nào phụ trách việc này. Cần bổ sung 1 Feature
+      (VD: FEAT-messaging-refactor) trước khi coi Driver Drowsiness
+      Detection Module là hoàn tất. TS-landmark-refactor (P0) và các
+      TS feature extraction về sau đều KHÔNG bao gồm việc dời này.

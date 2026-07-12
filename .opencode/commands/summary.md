@@ -1,5 +1,6 @@
 ---
 description: Tóm tắt phiên làm việc hiện tại, ghi vào .opencode/summaries/ và cập nhật memory nếu có quyết định mới
+argument-hint: "(không cần argument)"
 ---
 
 RUN mkdir -p .opencode/summaries
