@@ -55,6 +55,14 @@ class RabbitMQConnectionManager:
         return self._stop_event
 
     def connect(self) -> None:
+        """Connect to RabbitMQ with infinite retry (blocking)."""
+        self._connect_with_retry(max_retries=None)
+
+    def connect_or_fail(self, max_retries: int = 3) -> None:
+        """Connect to RabbitMQ; raise after max_retries attempts."""
+        self._connect_with_retry(max_retries=max_retries)
+
+    def _connect_with_retry(self, max_retries: int | None) -> None:
         credentials = pika.PlainCredentials(self._username, self._password)
         parameters = pika.ConnectionParameters(
             host=self._host,
@@ -67,7 +75,13 @@ class RabbitMQConnectionManager:
         )
 
         delay = RECONNECT_INITIAL_DELAY
+        attempt = 0
         while not self._stop_event.is_set():
+            if max_retries is not None and attempt >= max_retries:
+                raise AMQPConnectionError(
+                    f"Failed to connect to RabbitMQ after {max_retries} attempts"
+                )
+            attempt += 1
             try:
                 logger.info("Connecting to RabbitMQ at %s:%d", self._host, self._port)
                 self._connection = pika.BlockingConnection(parameters)
