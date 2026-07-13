@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADAS Monitoring Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="dashboard-container">
+        <header class="header glass">
+            <h1>Multimodal ADAS <span>Command Center</span></h1>
+            <div id="global-status" class="status-indicator safe">
+                <span class="status-dot"></span>
+                <span id="status-text">SYSTEM SECURE</span>
+            </div>
+        </header>
+
+        <main class="grid-layout">
+            <!-- Left Column: Metrics -->
+            <section class="metrics-panel">
+                <div class="card glass">
+                    <h2>Active Services</h2>
+                    <ul id="active-services-list" class="service-list">
+                        <!-- Populated by JS -->
+                        <li class="loading">Waiting for heartbeat...</li>
+                    </ul>
+                </div>
+                
+                <div class="card glass stats-card">
+                    <h2>Alert Distribution</h2>
+                    <div class="stats-grid" id="stats-grid">
+                        <div class="stat-box safe-box">
+                            <span class="stat-label">AWAKE</span>
+                            <span class="stat-value" id="stat-awake">0</span>
+                        </div>
+                        <div class="stat-box warning-box">
+                            <span class="stat-label">DROWSY</span>
+                            <span class="stat-value" id="stat-drowsy">0</span>
+                        </div>
+                        <div class="stat-box danger-box">
+                            <span class="stat-label">DANGEROUS</span>
+                            <span class="stat-value" id="stat-dangerous">0</span>
+                        </div>
+                    </div>
+                    <div class="total-events">
+                        Total Events: <span id="stat-total">0</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Column: Live Feed -->
+            <section class="live-feed-panel">
+                <div class="card glass feed-card">
+                    <div class="feed-header">
+                        <h2>Live Event Feed</h2>
+                        <span class="live-badge">● LIVE</span>
+                    </div>
+                    <div id="event-feed" class="event-feed">
+                        <!-- Events populated by JS -->
+                        <div class="empty-state">No events detected yet.</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

@@ -3,15 +3,14 @@ version: "3.9"
 # =====================================================================
 # MULTIMODAL-ADAS — Docker Compose (Local Dev / Full Stack)
 #
-# Kien truc RabbitMQ:
-#   Camera-Service → publish frames → RabbitMQ
-#   Driver-Service ← consume frames ← RabbitMQ
-#   Seatbelt-Service ← consume frames ← RabbitMQ
-#   Driver-Service → publish results → RabbitMQ
-#   Seatbelt-Service → publish results → RabbitMQ
-#   Camera-Service ← consume results ← RabbitMQ
+# Kiến trúc distributed thực tế:
+#   Máy A (driver-service)  → kết nối về aggregator qua network
+#   Máy B (lane-service)    → kết nối về aggregator
+#   Máy MẠNH (api-gateway + aggregator + dashboard)
 #
-# API Gateway khong bi anh huong boi thay doi nay.
+# File này chạy TẤT CẢ trên 1 máy để develop/test.
+# Xem docker-compose.driver.yml / docker-compose.gateway.yml
+# để deploy từng phần lên từng máy thành viên.
 # =====================================================================
 
 networks:
@@ -20,26 +19,7 @@ networks:
 
 services:
 
-  # ─── RabbitMQ ─────────────────────────────────────────────────────
-  rabbitmq:
-    image: rabbitmq:3.12-management-alpine
-    container_name: adas-rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
-    networks:
-      - adas-net
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ─── API Gateway ──────────────────────────────────────────────────
+  # ─── API Gateway (máy mạnh chạy cái này) ─────────────────────────
   api-gateway:
     build:
       context: ./services/api-gateway
@@ -59,7 +39,7 @@ services:
       - adas-net
     restart: unless-stopped
 
-  # ─── Aggregator ───────────────────────────────────────────────────
+  # ─── Aggregator (máy mạnh chạy cái này) ──────────────────────────
   aggregator-service:
     build:
       context: ./services/aggregator-service
@@ -68,34 +48,6 @@ services:
       - "8003:8003"
     environment:
       PORT: 8003
-    networks:
-      - adas-net
-    restart: unless-stopped
-
-  # ─── Camera Service ───────────────────────────────────────────────
-  camera-service:
-    build:
-      context: ./services/camera-service
-    container_name: adas-camera
-    ports:
-      - "8005:8005"
-    environment:
-      PORT: 8005
-      CAMERA_INDEX: ${CAMERA_INDEX:-0}
-      JPEG_QUALITY: ${JPEG_QUALITY:-85}
-      FRAME_WIDTH: ${FRAME_WIDTH:-640}
-      FRAME_HEIGHT: ${FRAME_HEIGHT:-480}
-      DEFAULT_FPS: ${DEFAULT_FPS:-30}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_VHOST: /
-      RABBITMQ_USER: guest
-      RABBITMQ_PASS: guest
-      SEATBELT_FRAME_INTERVAL: ${SEATBELT_FRAME_INTERVAL:-600}
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
     networks:
       - adas-net
     restart: unless-stopped
@@ -110,50 +62,16 @@ services:
     environment:
       EAR_THRESHOLD: ${EAR_THRESHOLD:-0.22}
       DROWSY_FRAMES: ${DROWSY_FRAMES:-60}
-      SLIDING_WINDOW_SIZE: ${SLIDING_WINDOW_SIZE:-90}
-      MODEL_PATH: face_landmarker.task
-      PORT: 8001
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_VHOST: /
-      RABBITMQ_USER: guest
-      RABBITMQ_PASS: guest
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-    networks:
-      - adas-net
-    restart: unless-stopped
-
-  # ─── Seatbelt Service ─────────────────────────────────────────────
-  seatbelt-service:
-    build:
-      context: ./services/seatbelt_service
-    container_name: adas-seatbelt
-    ports:
-      - "8007:8007"
-    environment:
-      PORT: 8007
-      MODEL_PATH: best.pt
-      CONFIDENCE_THRESHOLD: ${CONFIDENCE_THRESHOLD:-0.3}
-      WARNING_FRAMES: ${WARNING_FRAMES:-10}
-      POLL_INTERVAL: ${POLL_INTERVAL:-3.0}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_VHOST: /
-      RABBITMQ_USER: guest
-      RABBITMQ_PASS: guest
+      CAMERA_ID: ${CAMERA_ID:-0}
       AGGREGATOR_URL: http://aggregator-service:8003/event
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
+      DISPLAY: ${DISPLAY:-:0}
     networks:
       - adas-net
+    depends_on:
+      - aggregator-service
     restart: unless-stopped
 
-  # ─── Lane Service ─────────────────────────────────────────────────
+  # ─── Lane Service (placeholder) ───────────────────────────────────
   lane-service:
     build:
       context: ./services/lane-service
@@ -169,7 +87,7 @@ services:
       - aggregator-service
     restart: unless-stopped
 
-  # ─── Vehicle Service ──────────────────────────────────────────────
+  # ─── Vehicle Service (placeholder) ────────────────────────────────
   vehicle-service:
     build:
       context: ./services/vehicle-service
@@ -185,7 +103,25 @@ services:
       - aggregator-service
     restart: unless-stopped
 
-  # ─── Video Service ────────────────────────────────────────────────
+  # ─── Camera Service (run natively on Windows, NOT in Docker) ────
+  # Camera không thể truy cập webcam từ Docker trên Windows.
+  # Chạy camera-service trực tiếp trên máy:
+  #   cd services/camera-service
+  #   pip install -r requirements.txt
+  #   python main.py
+  # camera-service:
+  #   build:
+  #     context: ./services/camera-service
+  #   container_name: adas-camera
+  #   ports:
+  #     - "8005:8005"
+  #   environment:
+  #     PORT: 8005
+  #   networks:
+  #     - adas-net
+  #   restart: unless-stopped
+
+  # ─── Video Service (placeholder) ──────────────────────────────────
   video-service:
     build:
       context: ./services/video-service

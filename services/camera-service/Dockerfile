@@ -13,6 +13,5 @@ ENV FRAME_WIDTH=640
 ENV FRAME_HEIGHT=480
 ENV DEFAULT_FPS=30
 ENV LOG_LEVEL=INFO
-ENV SEATBELT_FRAME_INTERVAL=600
 EXPOSE 8005
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005"]
+CMD ["python", "main.py"]

@@ -1,13 +1,10 @@
-"""YOLO-based seatbelt detector consuming frames from RabbitMQ.
-
-Reuses ALL existing YOLO inference logic unchanged.
-Replaces HTTP frame fetching with direct JPEG byte input.
-"""
+"""YOLO-based seatbelt detector that fetches frames from camera-service."""
 
 import os
 import time
 from typing import Optional
 
+import httpx
 import numpy as np
 from ultralytics import YOLO
 
@@ -29,8 +26,8 @@ SEATBELT_CLASS_ID: int = 6
 class SeatbeltDetector:
     """Encapsulates YOLO model loading and inference.
 
-    Consumes JPEG frames received via RabbitMQ (passed as bytes),
-    runs detection, and exposes results via thread-safe properties.
+    Fetches frames from camera-service via HTTP, runs detection,
+    and exposes results via thread-safe properties.
     """
 
     def __init__(self) -> None:
@@ -38,6 +35,7 @@ class SeatbeltDetector:
         self._model_path: str = settings.MODEL_PATH
         self._conf_threshold: float = settings.CONFIDENCE_THRESHOLD
         self._warning_frames: int = settings.WARNING_FRAMES
+        self._camera_url: str = settings.CAMERA_SERVICE_URL.rstrip("/") + "/frame"
 
         self._model: Optional[YOLO] = None
         self._model_loaded: bool = False
@@ -80,35 +78,40 @@ class SeatbeltDetector:
         return self._model_loaded
 
     # ------------------------------------------------------------------
-    # Detection (receives JPEG bytes directly instead of HTTP fetch)
+    # Detection
     # ------------------------------------------------------------------
 
-    def process(self, jpeg_bytes: bytes, frame_id: int, frame_timestamp: float) -> dict:
-        """Process a JPEG frame received from RabbitMQ.
+    def check_frame(self) -> dict:
+        """Fetch one frame from camera-service and run YOLO detection.
 
-        Args:
-            jpeg_bytes: Raw JPEG frame bytes.
-            frame_id: Sequential frame identifier from camera.
-            frame_timestamp: Unix timestamp from camera.
-
-        Returns:
-            dict with keys: frame_id, timestamp, seatbelt, confidence.
+        Returns a dictionary with detection results suitable for the API response.
         """
         if not self._model_loaded or self._model is None:
-            return self._build_result(frame_id, frame_timestamp, False, 0.0)
+            raise RuntimeError("Model not loaded")
 
         t0 = time.time()
 
-        frame_np = self._decode_jpeg(jpeg_bytes)
-        if frame_np is None:
-            return self._build_result(frame_id, frame_timestamp, False, 0.0)
+        frame_bytes = self._fetch_frame()
+        if frame_bytes is None:
+            return self._empty_result(time.time() - t0, "camera_unreachable")
 
-        detections, has_seatbelt, max_confidence = self._run_inference(frame_np)
+        frame_np = self._decode_jpeg(frame_bytes)
+        if frame_np is None:
+            return self._empty_result(time.time() - t0, "decode_error")
+
+        detections, has_seatbelt = self._run_inference(frame_np)
         inference_ms = (time.time() - t0) * 1000.0
 
         self._update_stats(has_seatbelt, inference_ms)
 
-        return self._build_result(frame_id, frame_timestamp, has_seatbelt, max_confidence)
+        return {
+            "seatbelt_detected": has_seatbelt,
+            "no_seatbelt_streak": self._no_seatbelt_streak,
+            "warning": self._no_seatbelt_streak >= self._warning_frames,
+            "detections": detections,
+            "timestamp": time.time(),
+            "inference_time_ms": round(inference_ms, 2),
+        }
 
     # ------------------------------------------------------------------
     # Stats
@@ -130,21 +133,20 @@ class SeatbeltDetector:
         }
 
     # ------------------------------------------------------------------
-    # Check endpoint (kept for backward compatibility with API)
-    # ------------------------------------------------------------------
-
-    def get_latest_result(self) -> dict:
-        """Return the latest detection state for API /check endpoint."""
-        return {
-            "seatbelt_detected": self._no_seatbelt_streak == 0,
-            "no_seatbelt_streak": self._no_seatbelt_streak,
-            "warning": self._no_seatbelt_streak >= self._warning_frames,
-            "timestamp": time.time(),
-        }
-
-    # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _fetch_frame(self) -> Optional[bytes]:
+        """Fetch JPEG frame from camera-service."""
+        try:
+            response = httpx.get(self._camera_url, timeout=5.0)
+            if response.status_code == 200 and response.content:
+                return response.content
+            self._logger.warning("Camera returned status %d or empty body", response.status_code)
+            return None
+        except httpx.RequestError as exc:
+            self._logger.warning("Camera unreachable: %s", exc)
+            return None
 
     @staticmethod
     def _decode_jpeg(jpeg_bytes: bytes) -> Optional[np.ndarray]:
@@ -155,17 +157,13 @@ class SeatbeltDetector:
         frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
         return frame
 
-    def _run_inference(self, frame: np.ndarray) -> tuple[list[dict], bool, float]:
-        """Run YOLO inference and return detections + seatbelt flag.
-
-        KEPT EXACTLY AS IS from original implementation.
-        """
+    def _run_inference(self, frame: np.ndarray) -> tuple[list[dict], bool]:
+        """Run YOLO inference and return detections + seatbelt flag."""
         results = self._model(frame, conf=self._conf_threshold, verbose=False)
         boxes_data = results[0].boxes
 
         detections: list[dict] = []
         has_seatbelt = False
-        max_seatbelt_confidence = 0.0
 
         if boxes_data is not None and len(boxes_data) > 0:
             for box in boxes_data:
@@ -183,10 +181,8 @@ class SeatbeltDetector:
                 })
                 if cls_id == SEATBELT_CLASS_ID:
                     has_seatbelt = True
-                    if conf > max_seatbelt_confidence:
-                        max_seatbelt_confidence = conf
 
-        return detections, has_seatbelt, max_seatbelt_confidence
+        return detections, has_seatbelt
 
     def _update_stats(self, has_seatbelt: bool, inference_ms: float) -> None:
         self._total_checks += 1
@@ -200,11 +196,13 @@ class SeatbeltDetector:
         if len(self._inference_times) > 1000:
             self._inference_times = self._inference_times[-1000:]
 
-    @staticmethod
-    def _build_result(frame_id: int, timestamp: float, seatbelt: bool, confidence: float) -> dict:
+    def _empty_result(self, elapsed_ms: float, reason: str) -> dict:
+        self._logger.debug("Empty result: %s (%.1fms)", reason, elapsed_ms)
         return {
-            "frame_id": frame_id,
-            "timestamp": timestamp,
-            "seatbelt": seatbelt,
-            "confidence": round(confidence, 4),
+            "seatbelt_detected": False,
+            "no_seatbelt_streak": self._no_seatbelt_streak,
+            "warning": False,
+            "detections": [],
+            "timestamp": time.time(),
+            "inference_time_ms": round(elapsed_ms, 2),
         }
