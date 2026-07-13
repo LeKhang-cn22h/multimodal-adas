@@ -1,0 +1,47 @@
+version: "3.9"
+
+# =====================================================================
+# CHẠY TRÊN MÁY MẠNH (API Gateway + Aggregator)
+#
+# Lệnh: docker compose -f docker-compose.gateway.yml up -d
+#
+# Các máy thành viên kết nối về IP của máy này.
+# Đảm bảo port 8000 và 8003 được mở trên firewall/router.
+# =====================================================================
+
+networks:
+  adas-gateway-net:
+    driver: bridge
+
+services:
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+    container_name: adas-api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      PORT: 8000
+      # Điền IP thật của từng máy thành viên tại đây:
+      DRIVER_SERVICE_URL:     http://${DRIVER_HOST:-localhost}:8001
+      LANE_SERVICE_URL:       http://${LANE_HOST:-localhost}:8002
+      AGGREGATOR_SERVICE_URL: http://aggregator-service:8003
+      VEHICLE_SERVICE_URL:    http://${VEHICLE_HOST:-localhost}:8004
+      CAMERA_SERVICE_URL:     http://${CAMERA_HOST:-localhost}:8005
+    depends_on:
+      - aggregator-service
+    networks:
+      - adas-gateway-net
+    restart: unless-stopped
+
+  aggregator-service:
+    build:
+      context: ./services/aggregator-service
+    container_name: adas-aggregator
+    ports:
+      - "8003:8003"          # Services khác POST event vào đây
+    environment:
+      PORT: 8003
+    networks:
+      - adas-gateway-net
+    restart: unless-stopped
