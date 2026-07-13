@@ -11,8 +11,7 @@ MULTIMODAL-ADAS/
 ├── infrastructure/
 ├── scripts/
 ├── services/
-│   ├── camera-service     # DUY NHẤT được mở webcam
-│   ├── driver-service      # MediaPipe Face Landmarker -> fatigue
+│   ├── driver-service      # Mở webcam + MediaPipe Face Landmarker + fatigue classification
 │   ├── lane-service
 │   └── vehicle-service
 ├── docker-compose.yml
@@ -84,8 +83,7 @@ Không copy nội dung của chúng vào đây để tránh trùng lặp/lệch 
 
 ## 4. Quy tắc bất di bất dịch
 
-1. Chỉ `camera-service` được gọi `cv2.VideoCapture`. Service khác lấy frame
-   qua HTTP `GET /frame` của camera-service.
+1. Chỉ `driver-service` được gọi `cv2.VideoCapture` (ADR-006 — camera-service đã gộp vào driver-service).
 2. Mỗi service giữ đúng Layered Architecture: `api/ -> services/ -> repositories/`,
    `utils/` là pure function không I/O.
 3. Không commit secret, API key, `.env` thật vào git.

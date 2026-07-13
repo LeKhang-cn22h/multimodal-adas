@@ -1,0 +1,18 @@
+NTHU-DDD Drowsiness Detection — Training Report
+============================================================
+
+Subjects: 001, 002, 005, 006 (4 total)
+Features: 40
+CV method: LOSO-CV (4-fold)
+
+Random Forest — mean ROC-AUC: 0.8976 ± 0.0326
+XGBoost       — mean ROC-AUC: 0.8856 ± 0.0397
+
+Winner: RandomForest
+Reason: Higher mean ROC-AUC (RF=0.8976 > XGB=0.8856)
+
+Production model: RandomForestClassifier
+Saved to: training\output\model.pkl
+Model size: 3104.8 KB
+
+Limitations: 4 subjects only. Generalization to unseen subjects may be limited.
