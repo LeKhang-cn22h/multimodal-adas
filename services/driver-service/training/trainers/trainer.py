@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from models.common import unfreeze_top_layers
 from utils.early_stopping import EarlyStopping
@@ -26,9 +27,9 @@ class Trainer:
         self.criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         self.patience = patience
         self.use_amp = (device.type == "cuda") if use_amp is None else use_amp
-        self.scaler = torch.cuda.amp.GradScaler() if self.use_amp else None
+        self.scaler = torch.amp.GradScaler("cuda") if self.use_amp else None
 
-    def _run_epoch(self, loader: DataLoader, optimizer, train: bool) -> dict:
+    def _run_epoch(self, loader: DataLoader, optimizer, train: bool, desc: str = "") -> dict:
         self.model.train() if train else self.model.eval()
 
         total_loss = 0.0
@@ -36,8 +37,9 @@ class Trainer:
         all_probs: list[float] = []
 
         context = torch.enable_grad() if train else torch.no_grad()
+        pbar = tqdm(loader, desc=desc, leave=False)
         with context:
-            for images, labels in loader:
+            for images, labels in pbar:
                 images = images.to(self.device, non_blocking=True)
                 labels = labels.float().unsqueeze(1).to(self.device, non_blocking=True)
 
@@ -63,6 +65,7 @@ class Trainer:
                 probs = torch.sigmoid(logits.detach()).cpu().numpy().ravel()
                 all_probs.extend(probs.tolist())
                 all_targets.extend(labels.detach().cpu().numpy().ravel().tolist())
+                pbar.set_postfix(loss=f"{loss.item():.4f}")
 
         avg_loss = total_loss / len(loader.dataset)
         y_true = np.array(all_targets, dtype=int)
@@ -91,23 +94,66 @@ class Trainer:
         metrics = compute_metrics(y_true, y_pred, y_proba)
         return metrics, y_true, y_pred, y_proba
 
+    def sample_predictions(
+        self, loader: DataLoader, n: int = 16,
+    ) -> tuple[torch.Tensor, np.ndarray, np.ndarray, np.ndarray]:
+        """Lấy `n` ảnh đầu tiên của loader kèm nhãn thật/dự đoán/xác
+        suất, dùng để vẽ lưới ảnh mẫu (cnn_<task>_prediction_samples.png).
+        Ảnh trả về vẫn ở dạng tensor đã transform (CHW), chưa denormalize
+        — việc denormalize do plots.plot_prediction_samples đảm nhiệm.
+        """
+        self.model.eval()
+        images_chunks: list[torch.Tensor] = []
+        y_true: list[float] = []
+        y_pred: list[int] = []
+        y_proba: list[float] = []
+
+        collected = 0
+        with torch.no_grad():
+            for images, labels in loader:
+                imgs = images.to(self.device, non_blocking=True)
+                logits = self.model(imgs)
+                probs = torch.sigmoid(logits).cpu().numpy().ravel()
+                preds = (probs >= 0.5).astype(int)
+
+                images_chunks.append(images.cpu())
+                y_true.extend(labels.numpy().ravel().tolist())
+                y_pred.extend(preds.tolist())
+                y_proba.extend(probs.tolist())
+
+                collected += images.size(0)
+                if collected >= n:
+                    break
+
+        images_cat = torch.cat(images_chunks, dim=0)[:n]
+        return (
+            images_cat,
+            np.array(y_true[:n], dtype=int),
+            np.array(y_pred[:n], dtype=int),
+            np.array(y_proba[:n]),
+        )
+
     def _train_phase(self, train_loader, val_loader, optimizer, epochs: int) -> dict:
         history: dict = {}
         stopper = EarlyStopping(patience=self.patience, mode="max")
 
         for epoch in range(1, epochs + 1):
-            train_m = self._run_epoch(train_loader, optimizer, train=True)
-            val_m = self._run_epoch(val_loader, optimizer, train=False)
+            current_lr = optimizer.param_groups[0]["lr"]
+
+            train_m = self._run_epoch(train_loader, optimizer, train=True, desc=f"Epoch {epoch}/{epochs} [train]")
+            val_m = self._run_epoch(val_loader, optimizer, train=False, desc=f"Epoch {epoch}/{epochs} [val]")
 
             for k, v in train_m.items():
                 history.setdefault(k, []).append(v)
             for k, v in val_m.items():
                 history.setdefault(f"val_{k}", []).append(v)
+            history.setdefault("lr", []).append(current_lr)
 
             print(
                 f"  Epoch {epoch}/{epochs} — "
                 f"loss={train_m['loss']:.4f} acc={train_m['accuracy']:.4f} auc={train_m['auc']:.4f} | "
-                f"val_loss={val_m['loss']:.4f} val_acc={val_m['accuracy']:.4f} val_auc={val_m['auc']:.4f}"
+                f"val_loss={val_m['loss']:.4f} val_acc={val_m['accuracy']:.4f} val_auc={val_m['auc']:.4f} | "
+                f"lr={current_lr:.2e}"
             )
 
             stopper.step(val_m["auc"], self.model)

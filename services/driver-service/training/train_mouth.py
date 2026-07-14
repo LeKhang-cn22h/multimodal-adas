@@ -14,11 +14,14 @@ from models.mouth_cnn import build_mouth_model
 from trainers.trainer import Trainer
 from utils.checkpoint import save_checkpoint
 from utils.metrics import get_classification_report
-from utils.plots import plot_confusion_matrix, plot_roc_curve, plot_training_history
+from utils.plots import plot_all
 from utils.seed import set_seed
 
 
-def write_report(cfg: MouthConfig, n_train: int, n_val: int, y_true, y_pred, y_proba, metrics: dict) -> None:
+def write_report(
+    cfg: MouthConfig, n_train: int, n_val: int, y_true, y_pred, y_proba, metrics: dict,
+    roc_auc: float, pr_auc: float,
+) -> None:
     report_txt = get_classification_report(y_true, y_pred, cfg.classes)
     pt_size = cfg.model_path_pt.stat().st_size / 1024
 
@@ -29,13 +32,20 @@ def write_report(cfg: MouthConfig, n_train: int, n_val: int, y_true, y_pred, y_p
         "VAL METRICS (threshold=0.5)", "-" * 60,
         f"Accuracy:  {metrics['accuracy']:.4f}", f"Precision: {metrics['precision']:.4f}",
         f"Recall:    {metrics['recall']:.4f}", f"F1:        {metrics['f1']:.4f}",
-        f"ROC-AUC:   {metrics['auc']:.4f}", "",
+        f"ROC-AUC:   {roc_auc:.4f}", f"PR-AUC:    {pr_auc:.4f}", "",
         "Classification report (per class):", report_txt, "",
         f"Model (.pt): {cfg.model_path_pt}  ({pt_size:.1f} KB)",
         "", "Charts:",
         f"  - cnn_{cfg.task_name}_history.png",
+        f"  - cnn_{cfg.task_name}_loss.png",
+        f"  - cnn_{cfg.task_name}_accuracy.png",
+        f"  - cnn_{cfg.task_name}_auc.png",
+        f"  - cnn_{cfg.task_name}_lr_curve.png",
         f"  - cnn_{cfg.task_name}_confusion_matrix.png",
+        f"  - cnn_{cfg.task_name}_confusion_matrix_norm.png",
         f"  - cnn_{cfg.task_name}_roc_curve.png",
+        f"  - cnn_{cfg.task_name}_pr_curve.png",
+        f"  - cnn_{cfg.task_name}_prediction_samples.png",
     ]
     cfg.report_path.write_text("\n".join(lines), encoding="utf-8")
     print(f"Báo cáo: {cfg.report_path}")
@@ -43,9 +53,10 @@ def write_report(cfg: MouthConfig, n_train: int, n_val: int, y_true, y_pred, y_p
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--epochs", type=int, default=None, help="Override epochs_head")
     parser.add_argument("--epochs-finetune", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--num-workers", type=int, default=None, help="Giảm xuống nếu gặp lỗi shared memory trên Windows (thử 2, hoặc 0)")
     parser.add_argument("--no-amp", action="store_true")
     args = parser.parse_args()
 
@@ -56,6 +67,8 @@ def main() -> None:
         cfg.epochs_finetune = args.epochs_finetune
     if args.batch_size is not None:
         cfg.batch_size = args.batch_size
+    if args.num_workers is not None:
+        cfg.num_workers = args.num_workers
 
     set_seed(cfg.seed)
 
@@ -82,10 +95,19 @@ def main() -> None:
     metrics, y_true, y_pred, y_proba = trainer.evaluate(val_loader)
     print(f"\nKết quả VAL cuối cùng: {metrics}")
 
-    plot_training_history(history1, history2, cfg.task_name, cfg.output_dir)
-    plot_confusion_matrix(y_true, y_pred, cfg.classes, cfg.task_name, cfg.output_dir)
-    plot_roc_curve(y_true, y_proba, cfg.task_name, cfg.output_dir)
-    write_report(cfg, len(train_ds), len(val_ds), y_true, y_pred, y_proba, metrics)
+    # Lấy ảnh mẫu (tối đa 16) từ tập val để vẽ lưới dự đoán minh hoạ
+    sample_images, sample_y_true, sample_y_pred, sample_y_proba = trainer.sample_predictions(val_loader, n=16)
+
+    auc_scores = plot_all(
+        history1, history2, y_true, y_pred, y_proba, cfg.classes, cfg.task_name, cfg.output_dir,
+        sample_images=sample_images, sample_y_true=sample_y_true,
+        sample_y_pred=sample_y_pred, sample_y_proba=sample_y_proba,
+    )
+
+    write_report(
+        cfg, len(train_ds), len(val_ds), y_true, y_pred, y_proba, metrics,
+        roc_auc=auc_scores["roc_auc"], pr_auc=auc_scores["pr_auc"],
+    )
 
     print(f"\nHoàn tất task '{cfg.task_name}'. Chạy training/export_onnx.py --task mouth để xuất ONNX.")
 

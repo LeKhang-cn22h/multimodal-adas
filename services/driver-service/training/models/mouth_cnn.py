@@ -6,7 +6,7 @@ backbone nhẹ hơn nếu overfit)."""
 import torch
 import torch.nn as nn
 
-from models.common import build_mobilenet_classifier
+from training.models.common import build_mobilenet_classifier
 
 
 def build_mouth_model(device: torch.device) -> nn.Module:

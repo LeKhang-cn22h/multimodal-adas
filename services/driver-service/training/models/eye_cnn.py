@@ -5,7 +5,7 @@ không ảnh hưởng tới mouth."""
 import torch
 import torch.nn as nn
 
-from models.common import build_mobilenet_classifier
+from training.models.common import build_mobilenet_classifier
 
 
 def build_eye_model(device: torch.device) -> nn.Module:
