@@ -17,14 +17,18 @@ logger = get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load MediaPipe model and start RabbitMQ on startup."""
-    logger.info("Starting Driver-Service...")
+    logger.info("Starting Driver Service")
+
     orchestrator = get_orchestrator()
-    orchestrator.start()
-    logger.info("Driver-Service ready")
-    yield
-    logger.info("Shutting down Driver-Service...")
-    orchestrator.stop()
+
+    try:
+        orchestrator.start()
+        logger.info("Driver Service Ready")
+        yield
+
+    finally:
+        logger.info("Stopping Driver Service")
+        orchestrator.stop()
 
 
 app = FastAPI(
