@@ -16,7 +16,6 @@ from app.services.mediapipe_service import FaceLandmarkerResult
 from app.services.feature_engineering import WindowedFeatureEngineer
 from app.utils.ear import LEFT_EYE, RIGHT_EYE, calculate_ear
 from app.utils.mar import calculate_mar
-from app.utils.headpose import extract_head_pose
 
 
 # =============================================================================
@@ -161,9 +160,8 @@ class FeatureService:
 
         mar = calculate_mar(landmarks)
 
+        # TS-remove-headpose: Head Pose removed — yaw/pitch/roll = 0 always
         yaw, pitch, roll = (0.0, 0.0, 0.0)
-        if result.transformation_matrix is not None:
-            yaw, pitch, roll = extract_head_pose(result.transformation_matrix)
 
         roots: dict[str, float] = {
             "ear_left": float(ear_left),
