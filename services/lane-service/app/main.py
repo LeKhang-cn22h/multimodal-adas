@@ -10,10 +10,13 @@ from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+<<<<<<< HEAD
 import time
 import httpx
 from fastapi import Response
 
+=======
+>>>>>>> origin/lane-service
 # Ensure app directory is in Python's search path
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 if APP_DIR not in sys.path:
@@ -79,6 +82,7 @@ def analyze_video_file(
             video_source.close()
 
 
+<<<<<<< HEAD
 # ── API Endpoints ─────────────────────────────────────────────────────────────
 # @app.get("/health")
 # def health():
@@ -111,6 +115,8 @@ async def health(response: Response):
             "yolo_model": yolo_status
         }
     }
+=======
+>>>>>>> origin/lane-service
 # ── Active stream state ────────────────────────────────────────────────────────
 current_stream_path = os.path.join(VIDEO_DIR, "solidWhiteRight.mp4")
 
