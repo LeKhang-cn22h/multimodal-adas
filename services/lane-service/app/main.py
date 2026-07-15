@@ -79,7 +79,6 @@ def analyze_video_file(
             video_source.close()
 
 
-<<<<<<< HEAD
 # ── API Endpoints ─────────────────────────────────────────────────────────────
 # @app.get("/health")
 # def health():
@@ -112,7 +111,6 @@ async def health(response: Response):
             "yolo_model": yolo_status
         }
     }
-=======
 # ── Active stream state ────────────────────────────────────────────────────────
 current_stream_path = os.path.join(VIDEO_DIR, "solidWhiteRight.mp4")
 
@@ -175,7 +173,6 @@ def set_stream(req: SetStreamRequest):
     set_active_video(video_path)
     return {"status": "ok", "filename": req.filename}
 
->>>>>>> origin/lane-vehicle_service
 
 @app.post("/analyze-video")
 async def analyze_video(file: UploadFile = File(...)):

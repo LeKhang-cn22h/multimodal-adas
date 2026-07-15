@@ -28,11 +28,11 @@ services:
       - "8000:8000"
     environment:
       PORT: 8000
-      DRIVER_SERVICE_URL:    http://driver-service:8001
-      LANE_SERVICE_URL:      http://lane-service:8002
+      DRIVER_SERVICE_URL: http://driver-service:8001
+      LANE_SERVICE_URL: http://lane-service:8002
       AGGREGATOR_SERVICE_URL: http://aggregator-service:8003
-      VEHICLE_SERVICE_URL:   http://vehicle-service:8004
-      CAMERA_SERVICE_URL:    http://driver-service:8001
+      VEHICLE_SERVICE_URL: http://vehicle-service:8004
+      CAMERA_SERVICE_URL: http://driver-service:8001
     depends_on:
       - aggregator-service
     networks:
@@ -71,41 +71,7 @@ services:
       MAX_QUEUE_SIZE: ${MAX_QUEUE_SIZE:-2}
       EAR_THRESHOLD: ${EAR_THRESHOLD:-0.22}
       DROWSY_FRAMES: ${DROWSY_FRAMES:-60}
-      SLIDING_WINDOW_SIZE: ${SLIDING_WINDOW_SIZE:-90}
-      MODEL_PATH: face_landmarker.task
-      PORT: 8001
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_VHOST: /
-      RABBITMQ_USER: guest
-      RABBITMQ_PASS: guest
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-    networks:
-      - adas-net
-    restart: unless-stopped
-
-  # ─── Seatbelt Service ─────────────────────────────────────────────
-  seatbelt-service:
-    build:
-      context: ./services/seatbelt_service
-    container_name: adas-seatbelt
-    ports:
-      - "8007:8007"
-    environment:
-      PORT: 8007
-      MODEL_PATH: best.pt
-      CONFIDENCE_THRESHOLD: ${CONFIDENCE_THRESHOLD:-0.3}
-      WARNING_FRAMES: ${WARNING_FRAMES:-10}
-      POLL_INTERVAL: ${POLL_INTERVAL:-3.0}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_VHOST: /
-      RABBITMQ_USER: guest
-      RABBITMQ_PASS: guest
+      CAMERA_ID: ${CAMERA_ID:-0}
       AGGREGATOR_URL: http://aggregator-service:8003/event
       DISPLAY: ${DISPLAY:-:0}
     networks:
