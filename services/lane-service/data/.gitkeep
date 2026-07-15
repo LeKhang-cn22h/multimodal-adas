@@ -1,0 +1,7 @@
+# Thư mục này chứa dữ liệu của lane-service.
+# Dataset (solesensei-bdd100k/) và video test KHÔNG được push lên Git.
+#
+# Cấu trúc thư mục:
+#   data/
+#   ├── test_videos/        ← Đặt video .mp4 vào đây để chạy thử
+#   └── solesensei-bdd100k/ ← Dataset training (tải riêng)

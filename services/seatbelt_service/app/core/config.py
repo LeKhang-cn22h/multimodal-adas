@@ -7,6 +7,7 @@ from functools import lru_cache
 class Settings:
     """Seatbelt service settings loaded from environment variables."""
 
+    CAMERA_SERVICE_URL: str = os.getenv("CAMERA_SERVICE_URL", "http://camera-service:8005")
     MODEL_PATH: str = os.getenv("MODEL_PATH", "best.pt")
     CONFIDENCE_THRESHOLD: float = float(os.getenv("CONFIDENCE_THRESHOLD", "0.3"))
     WARNING_FRAMES: int = int(os.getenv("WARNING_FRAMES", "10"))
@@ -14,12 +15,6 @@ class Settings:
     PORT: int = int(os.getenv("PORT", "8007"))
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     SERVICE_NAME: str = "seatbelt-service"
-
-    RABBITMQ_HOST: str = os.getenv("RABBITMQ_HOST", "localhost")
-    RABBITMQ_PORT: int = int(os.getenv("RABBITMQ_PORT", "5672"))
-    RABBITMQ_VHOST: str = os.getenv("RABBITMQ_VHOST", "/")
-    RABBITMQ_USER: str = os.getenv("RABBITMQ_USER", "guest")
-    RABBITMQ_PASS: str = os.getenv("RABBITMQ_PASS", "guest")
 
     AGGREGATOR_URL: str = os.getenv("AGGREGATOR_URL", "http://aggregator-service:8003/event")
 

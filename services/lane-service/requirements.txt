@@ -8,9 +8,6 @@ httpx
 opencv-python-headless==4.10.0.84
 numpy
 
-# UI
-gradio==5.1.0
-huggingface_hub==0.25.2
 
 # YOLOv11 - phat hien phuong tien / vat can
 # torch/torchvision ban CPU, doi sang ban CUDA neu chay tren may co GPU

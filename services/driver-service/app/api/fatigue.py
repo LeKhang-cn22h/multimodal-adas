@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """API routes for driver-service."""
 
 from fastapi import APIRouter
@@ -50,3 +51,5 @@ def get_frame():
             headers={"X-Error": "Camera not ready or no frame captured yet"},
         )
     return Response(content=jpeg, media_type="image/jpeg")
+=======
+>>>>>>> origin/lane-vehicle_service

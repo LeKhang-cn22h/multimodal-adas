@@ -4,10 +4,11 @@ import shutil
 import tempfile
 import cv2
 import uvicorn
-import gradio as gr
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 import time
 import httpx
@@ -19,9 +20,8 @@ if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
 from config import settings
-from video_source import VideoSource
+from video_source import VideoSource, HttpCameraSource
 from pipeline import LanePipeline
-from ui import create_gradio_app
 
 # ── Global Pipeline Instance (Loaded Once at Startup) ─────────────────────────
 print("Loading LanePipeline (YOLOv11)...")
@@ -29,7 +29,17 @@ global_pipeline = LanePipeline()
 print("LanePipeline loaded successfully.")
 
 # ── FastAPI App ───────────────────────────────────────────────────────────────
-app = FastAPI(title="Lane Detection Service", version="1.0.0")
+app = FastAPI(title="Lane Detection Service", version="2.0.0")
+
+# ── Static Files (Dashboard HTML/CSS/JS) ──────────────────────────────────────
+STATIC_DIR = os.path.join(APP_DIR, "static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# ── Data directories ──────────────────────────────────────────────────────────
+VIDEO_DIR = os.path.join(APP_DIR, "..", "data", "test_videos")
+os.makedirs(VIDEO_DIR, exist_ok=True)
+
+VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".wmv", ".flv"}
 
 
 def analyze_video_file(
@@ -41,10 +51,12 @@ def analyze_video_file(
     """Xử lý video qua LanePipeline và trả về kết quả dưới dạng dict."""
     video_source = None
     try:
-        video_source = VideoSource(video_path)
+        if video_path.startswith("http://") or video_path.startswith("https://"):
+            video_source = HttpCameraSource(video_path)
+        else:
+            video_source = VideoSource(video_path)
         video_info = video_source.get_info()
 
-        # Tái sử dụng pipeline truyền vào, hoặc dùng global_pipeline, hoặc tạo mới nếu chưa có
         use_pipeline = pipeline or global_pipeline or LanePipeline()
 
         frames_processed = 0
@@ -67,6 +79,7 @@ def analyze_video_file(
             video_source.close()
 
 
+<<<<<<< HEAD
 # ── API Endpoints ─────────────────────────────────────────────────────────────
 # @app.get("/health")
 # def health():
@@ -99,6 +112,70 @@ async def health(response: Response):
             "yolo_model": yolo_status
         }
     }
+=======
+# ── Active stream state ────────────────────────────────────────────────────────
+current_stream_path = os.path.join(VIDEO_DIR, "solidWhiteRight.mp4")
+
+
+def set_active_video(video_path: str):
+    global current_stream_path
+    current_stream_path = video_path
+    print(f"[Stream] Da chuyen luong sang: {video_path}")
+
+
+# ── API Endpoints ──────────────────────────────────────────────────────────────
+
+@app.get("/")
+def root():
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
+
+@app.get("/ui")
+def dashboard():
+    """Serve dashboard HTML."""
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "service": "lane-service"}
+
+
+@app.get("/videos")
+def list_videos():
+    """Trả về danh sách các video có sẵn trong thư mục data/test_videos."""
+    try:
+        files = sorted([
+            f for f in os.listdir(VIDEO_DIR)
+            if os.path.splitext(f)[1].lower() in VIDEO_EXTS
+        ])
+        return {"videos": ["Live Camera (camera-service)"] + files}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class SetStreamRequest(BaseModel):
+    filename: str
+
+
+@app.post("/set-stream")
+def set_stream(req: SetStreamRequest):
+    """Chuyển video đang phát MJPEG stream."""
+    if req.filename == "Live Camera (camera-service)":
+        set_active_video(settings.CAMERA_SERVICE_URL)
+        return {"status": "ok", "filename": req.filename}
+
+    if req.filename.startswith("http://") or req.filename.startswith("https://"):
+        set_active_video(req.filename)
+        return {"status": "ok", "filename": req.filename}
+
+    video_path = os.path.join(VIDEO_DIR, req.filename)
+    if not os.path.exists(video_path):
+        raise HTTPException(status_code=404, detail=f"Video not found: {req.filename}")
+    set_active_video(video_path)
+    return {"status": "ok", "filename": req.filename}
+
+>>>>>>> origin/lane-vehicle_service
 
 @app.post("/analyze-video")
 async def analyze_video(file: UploadFile = File(...)):
@@ -114,14 +191,15 @@ async def analyze_video(file: UploadFile = File(...)):
 
     temp_path = None
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=extension) as temp_file:
-            shutil.copyfileobj(file.file, temp_file)
-            temp_path = temp_file.name
+        # Lưu file upload vào thư mục test_videos để sau dùng được
+        save_path = os.path.join(VIDEO_DIR, filename)
+        with open(save_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
 
-        # Chạy tác vụ đồng bộ nặng (CPU/GPU) trên threadpool phụ của FastAPI để tránh blocking
+        # Chạy pipeline
         result = await run_in_threadpool(
             analyze_video_file,
-            temp_path,
+            save_path,
             filename=filename,
             max_frames=settings.MAX_FRAMES,
             pipeline=global_pipeline,
@@ -133,93 +211,90 @@ async def analyze_video(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Video processing error: {error}")
     finally:
         await file.close()
-        if temp_path and os.path.exists(temp_path):
-            os.remove(temp_path)
 
-
-# Đường dẫn video đang phát stream mặc định (biến toàn cục)
-current_stream_path = os.path.join(APP_DIR, "..", "data", "test_videos", "solidWhiteRight.mp4")
-
-def set_active_video(video_path: str):
-    global current_stream_path
-    current_stream_path = video_path
-    print(f"[Stream] Da chuyen luong sang video: {video_path}")
 
 @app.get("/stream")
 def stream_video():
-    """Endpoint cung cấp MJPEG live stream của video đã chạy qua pipeline (YOLO + Lane Overlay)."""
+    """MJPEG live stream của video đang active, đã chạy qua ADAS pipeline."""
     def generate_frames():
         import time
+        import requests
+        import numpy as np
         last_video = None
         cap = None
+        is_http = False
+        frame_counter = 0
+        last_overlay = None   # Cache overlay từ frame trước để tái sử dụng
         while True:
             global current_stream_path
             if current_stream_path != last_video:
                 if cap is not None:
                     cap.release()
+                    cap = None
                 last_video = current_stream_path
-                cap = cv2.VideoCapture(last_video)
-                
-            if cap is None or not cap.isOpened():
-                time.sleep(0.1)
-                last_video = None
-                continue
-                
-            success, frame = cap.read()
-            if not success:
-                # Lặp lại video
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                continue
-                
-            # Chạy pipeline vẽ đè kết quả trực quan (visualize=True)
-            global_pipeline.process_frame(frame, visualize=True)
-            
-            # Mã hóa JPEG
+                is_http = current_stream_path.startswith("http://") or current_stream_path.startswith("https://")
+                if not is_http:
+                    cap = cv2.VideoCapture(last_video)
+
+            if is_http:
+                try:
+                    r = requests.get(current_stream_path, timeout=0.5)
+                    if r.status_code == 200:
+                        nparr = np.frombuffer(r.content, np.uint8)
+                        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        success = frame is not None
+                    else:
+                        success = False
+                except Exception:
+                    success = False
+                if not success:
+                    time.sleep(0.1)
+                    continue
+            else:
+                if cap is None or not cap.isOpened():
+                    time.sleep(0.1)
+                    last_video = None
+                    continue
+
+                success, frame = cap.read()
+                if not success:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    continue
+
+            # Frame skipping: chạy ADAS pipeline mỗi 2 frame để tăng FPS
+            frame_counter += 1
+            if frame_counter % 2 == 0:
+                global_pipeline.process_frame(frame, visualize=True)
+                last_overlay = frame.copy()
+            elif last_overlay is not None:
+                frame[:] = last_overlay[:]
+
             ret, buffer = cv2.imencode(".jpg", frame)
             if not ret:
                 continue
-                
-            frame_bytes = buffer.tobytes()
+
             yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-                   
+                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+
         if cap is not None:
             cap.release()
-            
+
     return StreamingResponse(
         generate_frames(),
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
 
 
-# ── Mount Gradio UI ───────────────────────────────────────────────────────────
-def gradio_analyze_wrapper(video_path: str, filename: str = "video.mp4", max_frames: int = 30) -> dict:
-    if not video_path:
-        return {"error": "No video provided."}
-    # Tự động chuyển luồng stream chính sang video vừa tải lên
-    set_active_video(video_path)
-    return analyze_video_file(
-        video_path=video_path,
-        filename=filename,
-        max_frames=max_frames,
-        pipeline=global_pipeline,
-    )
-
-gradio_app = create_gradio_app(gradio_analyze_wrapper, set_active_video)
-app = gr.mount_gradio_app(app, gradio_app, path="/ui")
-
-
 # ── Local Tester Block ────────────────────────────────────────────────────────
 def run_local_test(video_path: str, max_frames: int = 30):
-    """Chạy test local một video và in kết quả ra terminal."""
     print("=" * 70)
-    print(f"BẮT ĐẦU CHẠY THỬ LOCAL: {video_path}")
+    print(f"BAT DAU CHAY THU LOCAL: {video_path}")
     print("=" * 70)
-    
+
     if not os.path.exists(video_path):
-        print(f"LỖI: Không tìm thấy file: {video_path}")
+        print(f"LOI: Khong tim thay file: {video_path}")
         return
-        
+
     try:
         result = analyze_video_file(
             video_path,
@@ -227,35 +302,27 @@ def run_local_test(video_path: str, max_frames: int = 30):
             max_frames=max_frames,
             pipeline=global_pipeline,
         )
-        print(f"Trạng thái: {result['status']}")
-        print(f"Thông tin Video: {result['video']}")
-        print(f"Đã xử lý: {result['frames_processed']} frames")
-        
+        print(f"Trang thai: {result['status']}")
+        print(f"Thong tin Video: {result['video']}")
+        print(f"Da xu ly: {result['frames_processed']} frames")
         last_res = result["last_frame_result"]
         if last_res:
-            print(f"Số lượng phát hiện ở Frame cuối: {last_res.get('num_detections')}")
-            for i, det in enumerate(last_res.get("detections", [])):
-                print(f"  [{i+1}] {det['class_name']} ({det['confidence']*100:.1f}%) -> bbox: {det['bbox']}")
-        print("=" * 70)
-        print("CHẠY THỬ LOCAL THÀNH CÔNG!")
+            print(f"So phat hien o Frame cuoi: {last_res.get('num_detections')}")
         print("=" * 70)
     except Exception as e:
         import traceback
-        print(f"LỖI khi chạy thử: {e}")
+        print(f"LOI khi chay thu: {e}")
         traceback.print_exc()
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # Nếu truyền file video qua dòng lệnh: python main.py <video_path>
     if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
-        video_arg = sys.argv[1]
-        run_local_test(video_arg, max_frames=settings.MAX_FRAMES)
+        run_local_test(sys.argv[1], max_frames=settings.MAX_FRAMES)
     else:
-        # Mặc định khởi chạy Web App (FastAPI + Gradio)
         port = settings.PORT
-        print(f"Khởi chạy Web App trên port {port}...")
-        print(f"  Gradio UI (Giao diện web): http://localhost:{port}/ui")
-        print(f"  API Docs (Swagger):        http://localhost:{port}/docs")
-        print(f"  Health Check:               http://localhost:{port}/health")
+        print(f"Khoi chay Web App tren port {port}...")
+        print(f"  Dashboard:   http://localhost:{port}/ui")
+        print(f"  API Docs:    http://localhost:{port}/docs")
+        print(f"  Health:      http://localhost:{port}/health")
         uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)

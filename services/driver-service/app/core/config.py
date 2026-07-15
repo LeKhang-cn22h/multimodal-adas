@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """Application configuration for driver-service."""
 
 import os
@@ -59,3 +60,5 @@ class Settings:
 @lru_cache()
 def get_settings() -> Settings:
     return Settings()
+=======
+>>>>>>> origin/lane-vehicle_service

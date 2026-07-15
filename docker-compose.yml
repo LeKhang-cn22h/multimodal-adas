@@ -3,9 +3,14 @@ version: "3.9"
 # =====================================================================
 # MULTIMODAL-ADAS — Docker Compose (Local Dev / Full Stack)
 #
-# ADR-006 (2026-07-11): camera-service merged into driver-service.
-#   Driver-service now opens the webcam directly and runs the full
-#   AI pipeline in-process.  Only driver.results go through RabbitMQ.
+# Kiến trúc distributed thực tế:
+#   Máy A (driver-service)  → kết nối về aggregator qua network
+#   Máy B (lane-service)    → kết nối về aggregator
+#   Máy MẠNH (api-gateway + aggregator + dashboard)
+#
+# File này chạy TẤT CẢ trên 1 máy để develop/test.
+# Xem docker-compose.driver.yml / docker-compose.gateway.yml
+# để deploy từng phần lên từng máy thành viên.
 # =====================================================================
 
 networks:
@@ -14,26 +19,7 @@ networks:
 
 services:
 
-  # ─── RabbitMQ ─────────────────────────────────────────────────────
-  rabbitmq:
-    image: rabbitmq:3.12-management-alpine
-    container_name: adas-rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
-    networks:
-      - adas-net
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ─── API Gateway ──────────────────────────────────────────────────
+  # ─── API Gateway (máy mạnh chạy cái này) ─────────────────────────
   api-gateway:
     build:
       context: ./services/api-gateway
@@ -53,7 +39,7 @@ services:
       - adas-net
     restart: unless-stopped
 
-  # ─── Aggregator ───────────────────────────────────────────────────
+  # ─── Aggregator (máy mạnh chạy cái này) ──────────────────────────
   aggregator-service:
     build:
       context: ./services/aggregator-service
@@ -66,7 +52,7 @@ services:
       - adas-net
     restart: unless-stopped
 
-  # ─── Driver Service (webcam + AI pipeline — ADR-006) ──────────────
+  # ─── Driver Service ───────────────────────────────────────────────
   driver-service:
     build:
       context: ./services/driver-service
@@ -87,6 +73,8 @@ services:
       DROWSY_FRAMES: ${DROWSY_FRAMES:-60}
       SLIDING_WINDOW_SIZE: ${SLIDING_WINDOW_SIZE:-90}
       MODEL_PATH: face_landmarker.task
+      PORT: 8001
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
       RABBITMQ_VHOST: /
@@ -119,14 +107,14 @@ services:
       RABBITMQ_USER: guest
       RABBITMQ_PASS: guest
       AGGREGATOR_URL: http://aggregator-service:8003/event
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
+      DISPLAY: ${DISPLAY:-:0}
     networks:
       - adas-net
+    depends_on:
+      - aggregator-service
     restart: unless-stopped
 
-  # ─── Lane Service ─────────────────────────────────────────────────
+  # ─── Lane Service (placeholder) ───────────────────────────────────
   lane-service:
     build:
       context: ./services/lane-service
@@ -142,7 +130,7 @@ services:
       - aggregator-service
     restart: unless-stopped
 
-  # ─── Vehicle Service ──────────────────────────────────────────────
+  # ─── Vehicle Service (placeholder) ────────────────────────────────
   vehicle-service:
     build:
       context: ./services/vehicle-service
@@ -158,7 +146,25 @@ services:
       - aggregator-service
     restart: unless-stopped
 
-  # ─── Video Service ────────────────────────────────────────────────
+  # ─── Camera Service (run natively on Windows, NOT in Docker) ────
+  # Camera không thể truy cập webcam từ Docker trên Windows.
+  # Chạy camera-service trực tiếp trên máy:
+  #   cd services/camera-service
+  #   pip install -r requirements.txt
+  #   python main.py
+  # camera-service:
+  #   build:
+  #     context: ./services/camera-service
+  #   container_name: adas-camera
+  #   ports:
+  #     - "8005:8005"
+  #   environment:
+  #     PORT: 8005
+  #   networks:
+  #     - adas-net
+  #   restart: unless-stopped
+
+  # ─── Video Service (placeholder) ──────────────────────────────────
   video-service:
     build:
       context: ./services/video-service

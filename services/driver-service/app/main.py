@@ -1,19 +1,14 @@
-"""FastAPI application entry point for driver-service.
-
-Initialises MediaPipe model and RabbitMQ messaging on startup,
-gracefully releases on shutdown.
-"""
-
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
+import uvicorn
+import os
 
-from app.api.fatigue import router as fatigue_router
-from app.messaging.orchestrator import get_orchestrator
-from app.utils.logger import get_logger
+app = FastAPI(title="Driver Monitoring Service", version="1.0.0")
 
-logger = get_logger()
+@app.get("/health")
+def health():
+    return {"status": "ok", "service": "driver-service"}
 
+<<<<<<< HEAD
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -38,3 +33,8 @@ app = FastAPI(
 )
 
 app.include_router(fatigue_router)
+=======
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", "8001"))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
+>>>>>>> origin/lane-vehicle_service
