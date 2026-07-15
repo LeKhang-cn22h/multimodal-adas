@@ -30,7 +30,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.services.mediapipe_service import FaceLandmarkerService
 from app.utils.ear import LEFT_EYE, RIGHT_EYE, calculate_ear
-from app.utils.headpose import extract_head_pose
 from app.utils.logger import get_logger
 from app.utils.mar import calculate_mar
 
@@ -131,9 +130,8 @@ def main() -> None:
             ear_avg = (ear_left + ear_right) / 2.0
             mar = float(calculate_mar(landmarks))
 
+            # TS-remove-headpose: Head Pose removed — yaw/pitch/roll = 0 always
             yaw, pitch, roll = 0.0, 0.0, 0.0
-            if result.transformation_matrix is not None:
-                yaw, pitch, roll = extract_head_pose(result.transformation_matrix)
 
             writer.writerow([
                 entry["subject_id"],
