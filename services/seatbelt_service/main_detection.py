@@ -1,16 +1,21 @@
 """
 Test YOLO Detection model (seatbelt_detection5/weights/best.pt).
 Classes: drinking, eyeglass, hands off, hands on, mask, seatbelt
+Seatbelt Detection - YOLOv8m (seatbelt_yolov8m)
 
-Pipeline don gian:
-  1. Chay YOLO detection tren tung frame.
-  2. Ve bounding box + label + confidence.
-  3. Canh bao neu khong co class 'seatbelt' trong frame (sau N frame lien tiep).
+Classes: cell phone, drinking, eyeglass, hands off, hands on, mask, seatbelt
+
+Pipeline:
+  1. Chon video file tu may local (tkinter dialog hoac CLI --input).
+  2. Chay YOLOv8m detection tren tung frame.
+  3. Ve bounding box + label + confidence + FPS.
+  4. Canh bao neu khong co class 'seatbelt' (sau N frame lien tiep).
 """
 
 import argparse
 import os
-from collections import defaultdict
+import time
+from collections import Counter
 from tkinter import Tk, filedialog
 
 import cv2
@@ -20,23 +25,18 @@ from ultralytics import YOLO
 # ---------------------------------------------------------------------------
 # Hang so
 # ---------------------------------------------------------------------------
-DEFAULT_DETECTION_MODEL = r"runs/seatbelt_detection5/weights/best.pt"
+DEFAULT_DETECTION_MODEL = r"app/seatbelt_yolov8m/weights/best.pt"
 CONFIDENCE_THRESHOLD = 0.3
 WARNING_FRAME_THRESHOLD = 10  # so frame lien tiep khong co seatbelt -> WARNING
 
-# Classes tu model
-CLASS_NAMES = {0: "cell phone", 1: "drinking", 2: "eyeglass", 3: "hands off", 4: "hands on", 5: "mask", 6: "seatbelt"}
-SEATBELT_CLASS_ID = 6
+# Classes tu model (dynamic - se override sau khi load model)
+CLASS_NAMES = {}
+SEATBELT_CLASS_ID = None
 
-# Mau sac cho tung class (BGR)
+# Mau sac cho tung class (BGR) - su dung palette linh hoat
 CLASS_COLORS = {
-    0: (255, 165, 0),   # cell phone - cam
-    1: (0, 165, 255),   # drinking - cam nhat
-    2: (255, 255, 0),   # eyeglass - vang
-    3: (0, 0, 255),     # hands off - do
-    4: (0, 255, 255),   # hands on - vang nhat
-    5: (255, 0, 255),   # mask - tim
-    6: (0, 255, 0),     # seatbelt - xanh la
+    0: (0, 0, 255),     # no seat belt - do
+    1: (0, 255, 0),     # seat belt - xanh la
 }
 
 GREEN  = (0, 255, 0)
@@ -81,7 +81,7 @@ def draw_detections(frame, results, conf_threshold):
     return frame, detected_classes
 
 
-def draw_status_overlay(frame, no_seatbelt_count, threshold, has_seatbelt):
+def draw_status_overlay(frame, no_seatbelt_count, threshold, has_seatbelt, current_fps, detected_classes):
     """Ve trang thai canh bao o goc tren trai."""
     h, w = frame.shape[:2]
 
@@ -98,6 +98,20 @@ def draw_status_overlay(frame, no_seatbelt_count, threshold, has_seatbelt):
     (tw, th), _ = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
     cv2.rectangle(frame, (10, 10), (20 + tw, 20 + th + 6), bg_color, -1)
     cv2.putText(frame, status_text, (15, 10 + th + 3), cv2.FONT_HERSHEY_SIMPLEX, 0.7, WHITE, 2)
+
+    # FPS counter (goc tren phai)
+    fps_text = f"FPS: {current_fps:.1f}"
+    (ftw, fth), _ = cv2.getTextSize(fps_text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
+    cv2.rectangle(frame, (w - ftw - 20, 10), (w - 5, 18 + fth + 6), (40, 40, 40), -1)
+    cv2.putText(frame, fps_text, (w - ftw - 14, 10 + fth + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.55, WHITE, 2)
+
+    # Detected classes (goc duoi trai)
+    if detected_classes:
+        class_names = [CLASS_NAMES.get(c, str(c)) for c in detected_classes]
+        det_text = "Detected: " + ", ".join(class_names)
+        if len(det_text) > 60:
+            det_text = det_text[:57] + "..."
+        put_text_with_bg(frame, det_text, (10, h - 35), font_scale=0.45, color=(200, 200, 200))
 
     return frame
 
@@ -123,6 +137,16 @@ def process_video(
     model = YOLO(model_path)
     print(f"[OK]   Model ready. Classes: {model.names}")
 
+    # ── Cap nhat CLASS_NAMES va SEATBELT_CLASS_ID tu model ──────────
+    global CLASS_NAMES, SEATBELT_CLASS_ID
+    CLASS_NAMES = dict(model.names)
+    # Tim class "seat belt" (exact match, case-insensitive)
+    for cls_id, name in CLASS_NAMES.items():
+        if name.lower() == "seat belt":
+            SEATBELT_CLASS_ID = cls_id
+            break
+    print(f"[INFO] SEATBELT_CLASS_ID = {SEATBELT_CLASS_ID}")
+
     cap = cv2.VideoCapture(input_path)
     if not cap.isOpened():
         raise FileNotFoundError(f"Khong mo duoc video: {input_path}")
@@ -146,6 +170,12 @@ def process_video(
     frame_count = 0
     paused = False
 
+    # ── FPS + stats tracking ─────────────────────────────────────
+    fps_start = time.time()
+    fps_frame_count = 0
+    current_fps = 0.0
+    detection_counter = Counter()  # dem so lan xuat hien tung class
+
     print("=" * 60)
     print("[INFO] Nhan 'q' de thoat, 'p' de tam dung/tiep tuc.")
 
@@ -165,6 +195,10 @@ def process_video(
                 results = model(frame, conf=conf_threshold, verbose=False)
                 frame, detected_classes = draw_detections(frame, results, conf_threshold)
 
+                # --- Cap nhat stats ---
+                for c in detected_classes:
+                    detection_counter[c] += 1
+
                 # --- Logic canh bao: khong co seatbelt ---
                 has_seatbelt = SEATBELT_CLASS_ID in detected_classes
                 if has_seatbelt:
@@ -172,7 +206,16 @@ def process_video(
                 else:
                     no_seatbelt_count += 1
 
-                frame = draw_status_overlay(frame, no_seatbelt_count, warning_threshold, has_seatbelt)
+                # --- FPS (5s sliding window) ---
+                fps_frame_count += 1
+                elapsed_fps = time.time() - fps_start
+                if elapsed_fps >= 2.0:
+                    current_fps = fps_frame_count / elapsed_fps
+                    fps_frame_count = 0
+                    fps_start = time.time()
+
+                frame = draw_status_overlay(frame, no_seatbelt_count, warning_threshold,
+                                            has_seatbelt, current_fps, detected_classes)
 
                 # --- Frame counter ---
                 put_text_with_bg(frame, f"Frame: {frame_count}/{total}", (10, height - 15),
@@ -183,7 +226,8 @@ def process_video(
 
                 if frame_count % 60 == 0:
                     pct = (frame_count / total * 100) if total else 0
-                    print(f"  Frame {frame_count}/{total} ({pct:.1f}%) | seatbelt={has_seatbelt} | no_sb_count={no_seatbelt_count}")
+                    print(f"  Frame {frame_count}/{total} ({pct:.1f}%) | seatbelt={has_seatbelt} | "
+                          f"no_sb={no_seatbelt_count} | fps={current_fps:.1f}")
 
             if display:
                 cv2.imshow("Detection Test", frame)
@@ -205,6 +249,16 @@ def process_video(
 
     print("=" * 60)
     print(f"[DONE] {frame_count} frames processed.")
+    if detection_counter:
+        print(f"[STATS] Detection summary:")
+        total_detections = sum(detection_counter.values())
+        for cls_id in sorted(detection_counter.keys()):
+            name = CLASS_NAMES.get(cls_id, str(cls_id))
+            count = detection_counter[cls_id]
+            pct = count / total_detections * 100 if total_detections else 0
+            print(f"  {name:15s}: {count:6d}  ({pct:5.1f}%)")
+        seatbelt_frames = frame_count - (detection_counter.get(0, 0) > 0 and frame_count or 0)
+        print(f"  {'seatbelt OK':15s}: {frame_count - no_seatbelt_count:6d}  (deduced)")
     if output_path:
         print(f"[DONE] Output: {output_path}")
 
@@ -229,7 +283,7 @@ def select_video_file() -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Test YOLO Detection model (seatbelt detection).")
+    parser = argparse.ArgumentParser(description="Seatbelt Detection — YOLOv8m (seatbelt_yolov8m)")
     parser.add_argument("-i", "--input",  default=None, help="Duong dan video dau vao.")
     parser.add_argument("-o", "--output", default=None, help="Duong dan video dau ra.")
     parser.add_argument("--model",  default=DEFAULT_DETECTION_MODEL, help="Duong dan model .pt.")
