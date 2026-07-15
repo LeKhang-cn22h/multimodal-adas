@@ -9,6 +9,10 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
+import time
+import httpx
+from fastapi import Response
+
 # Ensure app directory is in Python's search path
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 if APP_DIR not in sys.path:
@@ -64,10 +68,37 @@ def analyze_video_file(
 
 
 # ── API Endpoints ─────────────────────────────────────────────────────────────
-@app.get("/health")
-def health():
-    return {"status": "ok", "service": "lane-service"}
+# @app.get("/health")
+# def health():
+#     return {"status": "ok", "service": "lane-service"}
 
+
+@app.get("/health")
+async def health(response: Response):
+    """
+    Health check endpoint focused strictly on YOLO model initialization.
+    """
+    is_healthy = False
+    yolo_status = "unloaded"
+
+    # Verify if the global pipeline exists and specifically contains the yolo_detector instance
+    if global_pipeline is not None and hasattr(global_pipeline, 'yolo_detector'):
+        if global_pipeline.yolo_detector is not None:
+            yolo_status = "loaded"
+            is_healthy = True
+
+    # Return HTTP 503 if the core YOLO model failed to load
+    if not is_healthy:
+        response.status_code = 503  
+
+    return {
+        "service": "lane-service",
+        "status": "healthy" if is_healthy else "unavailable",
+        "timestamp": round(time.time(), 2),
+        "components": {
+            "yolo_model": yolo_status
+        }
+    }
 
 @app.post("/analyze-video")
 async def analyze_video(file: UploadFile = File(...)):
