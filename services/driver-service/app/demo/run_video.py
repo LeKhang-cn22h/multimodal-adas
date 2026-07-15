@@ -30,24 +30,54 @@ def main():
     if fps <= 0:
         fps = 30
 
-    while True:
+    frame_index = 0
+    paused = False
 
-        ret, frame = cap.read()
+    try:
+        while True:
 
-        if not ret:
-            break
+            if not paused:
 
-        frame, result = detector.process(frame)
+                ret, frame = cap.read()
 
-        cv2.imshow("Driver Drowsiness Detection", frame)
+                if not ret:
+                    print("Hết video.")
+                    break
 
-        key = cv2.waitKey(int(1000 / fps))
+                # QUAN TRỌNG: dùng timestamp theo TIMELINE CỦA VIDEO
+                # (frame_index / fps), không phải đồng hồ hệ thống.
+                # Nếu không, PERCLOS/microsleep/yawn-filter sẽ tính sai
+                # khi tốc độ xử lý (CNN inference) không khớp tốc độ
+                # phát thực của video (video xử lý chậm/nhanh hơn thực tế).
+                timestamp = frame_index / fps
 
-        if key == 27 or key == ord("q"):
-            break
+                frame, result = detector.process(frame, timestamp=timestamp)
 
-    cap.release()
-    cv2.destroyAllWindows()
+                frame_index += 1
+
+                # Log ra console để dễ theo dõi khi review lại video offline
+                level = result["level"]
+                if level.value != "NORMAL":
+                    print(f"[t={timestamp:6.2f}s] level={level.value}")
+
+            cv2.imshow("Driver Drowsiness Detection", frame)
+
+            key = cv2.waitKey(int(1000 / fps)) & 0xFF
+
+            if key == 27 or key == ord("q"):
+                break
+
+            # Space: tạm dừng / tiếp tục, hữu ích khi review video để xem
+            # kỹ lúc nào model detect sai
+            if key == ord(" "):
+                paused = not paused
+
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+        # Đóng detector nếu có phương thức close() (giải phóng MediaPipe)
+        if hasattr(detector, "landmarker") and hasattr(detector.landmarker, "close"):
+            detector.landmarker.close()
 
 
 if __name__ == "__main__":
