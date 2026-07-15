@@ -81,6 +81,8 @@ services:
     environment:
       PORT: 8002
       AGGREGATOR_URL: http://aggregator-service:8003/event
+      VEHICLE_GRPC_HOST: vehicle-service
+      VEHICLE_GRPC_PORT: 50053
     networks:
       - adas-net
     depends_on:
@@ -94,6 +96,7 @@ services:
     container_name: adas-vehicle
     ports:
       - "8004:8004"
+      - "50053:50053"
     environment:
       PORT: 8004
       AGGREGATOR_URL: http://aggregator-service:8003/event

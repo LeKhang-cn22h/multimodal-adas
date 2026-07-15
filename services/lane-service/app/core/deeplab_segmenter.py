@@ -20,23 +20,83 @@ class DeepLabSegmenter:
     """
 
     def __init__(self, model_path: str = None, device: str = "cpu"):
-        # model_path để dành tích hợp model DeepLabV3+ thật sau này
+        import os
+        import sys
+        
+        # Thiet lap cac duong dan tu dong tim file best_deeplab.pth
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        default_paths = [
+            os.path.join(app_dir, "models", "best_deeplab.pth"),
+            os.path.join(app_dir, "training", "models", "best_deeplab.pth"),
+            os.path.join(os.path.dirname(app_dir), "models", "best_deeplab.pth")
+        ]
+        
         self.model_path = model_path
+        if not self.model_path:
+            for path in default_paths:
+                if os.path.exists(path):
+                    self.model_path = path
+                    break
+
         self.device = device
         self._morph_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         self._dilation_kernel = np.ones((3, 3), np.uint8)
+        
+        # Tu dong nap model PyTorch neu tim thay file pth
+        self.has_weights = False
+        if self.model_path and os.path.exists(self.model_path):
+            try:
+                import torch
+                # Import get_model
+                sys.path.append(os.path.join(app_dir, "training"))
+                from model import get_model
+                
+                self.device_torch = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                self.model = get_model(num_classes=3)
+                self.model.load_state_dict(torch.load(self.model_path, map_location=self.device_torch))
+                self.model.to(self.device_torch)
+                self.model.eval()
+                self.has_weights = True
+                print(f"[DeepLabSegmenter] Successfully loaded trained weights from {self.model_path}")
+            except Exception as e:
+                print(f"[DeepLabSegmenter] Failed to load trained weights, falling back to OpenCV. Error: {e}")
 
     def segment(self, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """
         Phân vùng khung hình.
-
-        Args:
-            frame: Ảnh BGR từ OpenCV.
-
-        Returns:
-            (drivable_area_mask, lane_marking_mask) — cả hai shape (H, W), dtype uint8.
         """
         height, width = frame.shape[:2]
+
+        if self.has_weights:
+            try:
+                import torch
+                import torchvision.transforms as T
+                
+                # Chuyen doi va resize anh de dua vao model PyTorch
+                img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img_resized = cv2.resize(img_rgb, (640, 360))
+                
+                transform = T.Compose([
+                    T.ToTensor(),
+                    T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                ])
+                img_tensor = transform(img_resized).unsqueeze(0).to(self.device_torch)
+                
+                with torch.no_grad():
+                    output = self.model(img_tensor)['out']
+                    pred = torch.argmax(output, dim=1).squeeze(0).cpu().numpy()
+                
+                # Resize mat na pred ve lai kich thuoc ban dau bang INTER_NEAREST
+                pred_resized = cv2.resize(pred.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST)
+                
+                # Phuc hoi drivable area (class 1) va lane marking (class 2)
+                drivable_area_mask = ((pred_resized == 1) * 255).astype(np.uint8)
+                lane_marking_mask = ((pred_resized == 2) * 255).astype(np.uint8)
+                
+                return drivable_area_mask, lane_marking_mask
+            except Exception as e:
+                print(f"[DeepLabSegmenter] Error during AI inference, falling back to OpenCV. Error: {e}")
+
 
         # ── Xây dựng ROI (hình thang nhìn về phía trước xe) ─────────────────
         roi_pts = np.array([

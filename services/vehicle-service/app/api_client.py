@@ -7,10 +7,11 @@ from datetime import datetime, timezone, timedelta
 logger = logging.getLogger("vehicle-service")
 
 # Lấy địa chỉ của API Gateway hoặc Aggregator từ biến môi trường
-GATEWAY_HOST = os.getenv("GATEWAY_HOST", "aggregator-service")
-GATEWAY_PORT = os.getenv("GATEWAY_PORT", "8003")
-
-AGGREGATOR_URL = f"http://{GATEWAY_HOST}:{GATEWAY_PORT}/event"
+AGGREGATOR_URL = os.getenv("AGGREGATOR_URL", None)
+if AGGREGATOR_URL is None:
+    GATEWAY_HOST = os.getenv("GATEWAY_HOST", "localhost")
+    GATEWAY_PORT = os.getenv("GATEWAY_PORT", "8003")
+    AGGREGATOR_URL = f"http://{GATEWAY_HOST}:{GATEWAY_PORT}/event"
 
 def get_vietnam_time_iso():
     tz = timezone(timedelta(hours=7))
