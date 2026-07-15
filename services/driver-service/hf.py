@@ -13,3 +13,12 @@ for root, dirs, files in os.walk(path):
             print("  " * (level + 1) + f)
         if len(files) > 3:
             print("  " * (level + 1) + f"... ({len(files)} files total)")
+
+# Download latest version
+path = kagglehub.dataset_download("tauilabdelilah/mrl-eye-dataset")
+
+print("Path to dataset files:", path)
+
+path = kagglehub.dataset_download("davidvazquezcic/yawn-dataset")
+
+print("Path to dataset files:", path)

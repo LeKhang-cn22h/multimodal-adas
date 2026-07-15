@@ -1,6 +1,6 @@
 import os, re
 
-base = r"D:\multimodal-adas\services\driver-service\dataset\Multi class\train"
+base = r"D:\multimodal-adas\services\driver-service\dataset\Multi class\train_cleaned"
 
 pattern = re.compile(r"^(\d+)_(glasses|noglasses)_([a-zA-Z]+)_(\d+)_(drowsy|notdrowsy)\.jpg$")
 
