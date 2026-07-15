@@ -86,31 +86,27 @@ class DrowsinessDetector:
             cv2.putText(
                 frame,
                 "NO FACE",
-                (20,40),
+                (20, 40),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1,
-                (0,0,255),
+                (0, 0, 255),
                 2,
             )
 
             return frame, None
 
-        eye_roi = self.eye_cropper.crop(
-            frame,
-            landmarks,
-        )
+        left_eye_roi = self.eye_cropper.crop_left(frame, landmarks)
+        right_eye_roi = self.eye_cropper.crop_right(frame, landmarks)
+        mouth_roi = self.mouth_cropper.crop(frame, landmarks)
+        if mouth_roi is not None:
+            cv2.imshow("Mouth ROI DEBUG", cv2.resize(mouth_roi, (200, 200)))
 
-        mouth_roi = self.mouth_cropper.crop(
-            frame,
-            landmarks,
-        )
-
-        if eye_roi is None or mouth_roi is None:
-
+        if left_eye_roi is None or right_eye_roi is None or mouth_roi is None:
             return frame, None
 
         result = self.predictor.predict(
-            eye_roi,
+            left_eye_roi,
+            right_eye_roi,
             mouth_roi,
         )
 
@@ -119,21 +115,21 @@ class DrowsinessDetector:
             result["mouth"]["label"],
         )
 
-        color = (0,255,0)
+        color = (0, 255, 0)
 
         if state == "DROWSY":
-            color = (0,0,255)
+            color = (0, 0, 255)
 
         elif state == "YAWNING":
-            color = (0,255,255)
+            color = (0, 255, 255)
 
         elif state == "EYES CLOSED":
-            color = (255,255,0)
+            color = (255, 255, 0)
 
         cv2.putText(
             frame,
             f"Eye : {result['eye']['label']} ({result['eye']['confidence']:.2f})",
-            (20,40),
+            (20, 40),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             color,
@@ -143,7 +139,7 @@ class DrowsinessDetector:
         cv2.putText(
             frame,
             f"Mouth : {result['mouth']['label']} ({result['mouth']['confidence']:.2f})",
-            (20,75),
+            (20, 75),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             color,
@@ -153,7 +149,7 @@ class DrowsinessDetector:
         cv2.putText(
             frame,
             f"State : {state}",
-            (20,110),
+            (20, 110),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.9,
             color,
@@ -164,19 +160,19 @@ class DrowsinessDetector:
 
             cv2.rectangle(
                 frame,
-                (0,0),
-                (frame.shape[1],frame.shape[0]),
-                (0,0,255),
+                (0, 0),
+                (frame.shape[1], frame.shape[0]),
+                (0, 0, 255),
                 6,
             )
 
             cv2.putText(
                 frame,
                 "WARNING : DROWSINESS DETECTED",
-                (20,160),
+                (20, 160),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1,
-                (0,0,255),
+                (0, 0, 255),
                 3,
             )
 
