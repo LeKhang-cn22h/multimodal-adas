@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 """API routes for driver-service."""
 
 from fastapi import APIRouter
