@@ -2,6 +2,10 @@
 
 import os
 from functools import lru_cache
+from pathlib import Path
+
+# Base directory for resolving relative model paths
+_APP_DIR = Path(__file__).resolve().parent.parent  # .../driver-service/app/
 
 
 class Settings:
@@ -15,7 +19,9 @@ class Settings:
     DROWSY_FRAMES: int = int(os.getenv("DROWSY_FRAMES", "60"))
     SLIDING_WINDOW_SIZE: int = int(os.getenv("SLIDING_WINDOW_SIZE", "90"))
 
-    MODEL_PATH: str = os.getenv("MODEL_PATH", "face_landmarker.task")
+    # Resolve model path to absolute (default: app/models/face_landmarker.task)
+    _default_model = str(_APP_DIR / "models" / "face_landmarker.task")
+    MODEL_PATH: str = os.getenv("MODEL_PATH", _default_model)
 
     RABBITMQ_HOST: str = os.getenv("RABBITMQ_HOST", "localhost")
     RABBITMQ_PORT: int = int(os.getenv("RABBITMQ_PORT", "5672"))
@@ -52,6 +58,14 @@ class Settings:
     FRAME_HEIGHT: int = int(os.getenv("FRAME_HEIGHT", "480"))
     JPEG_QUALITY: int = int(os.getenv("JPEG_QUALITY", "85"))
     MAX_QUEUE_SIZE: int = int(os.getenv("MAX_QUEUE_SIZE", "2"))
+
+    # ── Voice alert (TS-gradio-voice-alert) ────────────────────────
+    VOICE_COOLDOWN_SECONDS: float = float(
+        os.getenv("VOICE_COOLDOWN_SECONDS", "10.0"),
+    )
+    TTS_MODEL_NAME: str = os.getenv(
+        "TTS_MODEL_NAME", "facebook/mms-tts-vie",
+    )
 
 
 @lru_cache()

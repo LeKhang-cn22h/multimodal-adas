@@ -108,28 +108,28 @@ class DrowsinessDetector:
         display = LEVEL_DISPLAY[level]
         color = display["color"]
 
-        y = 40
+        y = 50
 
         if eye_result is not None:
             cv2.putText(
                 frame,
                 f"Eye : {eye_result['label']} ({eye_result['confidence']:.2f})",
-                (20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2,
+                (20, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 3,
             )
-            y += 35
+            y += 45
 
         if mouth_result is not None:
             cv2.putText(
                 frame,
                 f"Mouth : {mouth_result['label']} ({mouth_result['confidence']:.2f})",
-                (20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2,
+                (20, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 3,
             )
-            y += 35
+            y += 45
 
         cv2.putText(
             frame,
             f"State : {display['text']}",
-            (20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2,
+            (20, y), cv2.FONT_HERSHEY_SIMPLEX, 1.3, color, 3,
         )
 
         if level in (DrowsinessLevel.DROWSY, DrowsinessLevel.NO_FACE):
@@ -138,7 +138,7 @@ class DrowsinessDetector:
             )
             cv2.putText(
                 frame, f"WARNING : {display['text']}",
-                (20, y + 45), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 3,
+                (20, y + 55), cv2.FONT_HERSHEY_SIMPLEX, 1.5, color, 4,
             )
 
         return frame
