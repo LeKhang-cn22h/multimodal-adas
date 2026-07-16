@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package adas;
+
+service VehicleAnalysisService {
+  rpc AnalyzeFrame(FrameRequest) returns (VehicleResponse);
+}
+
+message FrameRequest {
+  int64 frame_id = 1;
+  double timestamp = 2;
+  bytes image_bytes = 3; // JPEG compressed image bytes
+}
+
+message VehicleResponse {
+  int64 frame_id = 1;
+  double timestamp = 2;
+  string risk_level = 3; // safe, low, high, critical
+  string alert_msg = 4;
+  bool camera_occluded = 5;
+  repeated DetectedObject objects = 6;
+}
+
+message DetectedObject {
+  int32 track_id = 1;
+  string class_name = 2;
+  float distance = 3;
+  string color = 4; // Text color representation for risk level
+  repeated float bbox = 5; // [x1, y1, x2, y2]
+}

@@ -6,7 +6,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Cấu hình AI
 MODEL_PATH = os.path.join(BASE_DIR, "yolo11s.pt") # Nâng cấp từ yolo11n lên yolo11s để tăng độ nhạy
 TRACKER_CONFIG = os.path.join(BASE_DIR, "custom_bytetrack.yaml")
-CONFIDENCE_THRESHOLD = 0.15 # Ngưỡng tin cậy (nhỏ hơn sẽ nhận diện được nhiều vật thể mờ/xa hơn)
+CONFIDENCE_THRESHOLD = 0.20 # Tăng nhẹ từ 0.15 lên 0.20 để cân bằng giữa việc nhận diện được xe ở xa và việc giảm bắt nhầm nhiễu (Ghost Frames)
 CONTAINMENT_THRESHOLD = 0.30 # Ngưỡng 30% để lọc người ngồi trên xe/trong ô tô
 MAX_RIDER_MEMORY_FRAMES = 15 # Bộ nhớ đệm 15 frame để tránh chập chờn nhãn người đi bộ
 

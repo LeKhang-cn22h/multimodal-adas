@@ -1,10 +1,13 @@
 import httpx
+import os
 
 class EventClient:
     """
     Gửi cảnh báo chệch làn đường tự động đến aggregator-service.
     """
-    def __init__(self, target_url: str = "http://aggregator-service:8003/event"):
+    def __init__(self, target_url: str = None):
+        if target_url is None:
+            target_url = os.getenv("AGGREGATOR_URL", "http://localhost:8003/event")
         self.target_url = target_url
         # Sử dụng timeout ngắn (1 giây) để không làm chậm luồng xử lý chính
         self.client = httpx.Client(timeout=1.0)

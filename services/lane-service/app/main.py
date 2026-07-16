@@ -103,6 +103,58 @@ def health():
     return {"status": "ok", "service": "lane-service"}
 
 
+# ── Bo loc cau hinh dong (Dynamic Service Config Toggles) ────────────────────
+class ConfigIn(BaseModel):
+    lane_detection: bool
+    deeplab_segmentation: bool
+    vehicle_detection: bool
+    driver_monitoring: bool
+    seatbelt_detection: bool
+
+
+# Cau hinh mac dinh
+active_config = {
+    "lane_detection": True,
+    "deeplab_segmentation": True,
+    "vehicle_detection": True,
+    "driver_monitoring": True,
+    "seatbelt_detection": True
+}
+
+
+@app.get("/api/config")
+def get_config():
+    return active_config
+
+
+@app.post("/api/config")
+def update_config(config_in: ConfigIn):
+    active_config["lane_detection"] = config_in.lane_detection
+    active_config["deeplab_segmentation"] = config_in.deeplab_segmentation
+    active_config["vehicle_detection"] = config_in.vehicle_detection
+    active_config["driver_monitoring"] = config_in.driver_monitoring
+    active_config["seatbelt_detection"] = config_in.seatbelt_detection
+    
+    # Cap nhat vao global_pipeline
+    global_pipeline.update_config(active_config)
+    return {"ok": True, "config": active_config}
+
+
+@app.get("/api/events")
+def get_aggregator_events(limit: int = 20):
+    import requests
+    # Sử dụng AGGREGATOR_URL từ ENV hoặc mặc định là localhost:8003
+    agg_url = os.getenv("AGGREGATOR_URL", "http://localhost:8003/event")
+    events_url = agg_url.replace("/event", "/events")
+    try:
+        r = requests.get(f"{events_url}?limit={limit}", timeout=1.0)
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return []
+
+
 @app.get("/videos")
 def list_videos():
     """Trả về danh sách các video có sẵn trong thư mục data/test_videos."""
@@ -174,6 +226,14 @@ async def analyze_video(file: UploadFile = File(...)):
         await file.close()
 
 
+latest_live_status = {}
+
+@app.get("/api/live-status")
+def get_live_status():
+    global latest_live_status
+    return latest_live_status
+
+
 @app.get("/stream")
 def stream_video():
     """MJPEG live stream của video đang active, đã chạy qua ADAS pipeline."""
@@ -181,6 +241,7 @@ def stream_video():
         import time
         import requests
         import numpy as np
+        global latest_live_status
         last_video = None
         cap = None
         is_http = False
@@ -225,10 +286,13 @@ def stream_video():
             # Frame skipping: chạy ADAS pipeline mỗi 2 frame để tăng FPS
             frame_counter += 1
             if frame_counter % 2 == 0:
-                global_pipeline.process_frame(frame, visualize=True)
+                latest_live_status = global_pipeline.process_frame(frame, visualize=True)
                 last_overlay = frame.copy()
-            elif last_overlay is not None:
+            elif last_overlay is not None and last_overlay.shape == frame.shape:
                 frame[:] = last_overlay[:]
+            else:
+                latest_live_status = global_pipeline.process_frame(frame, visualize=True)
+                last_overlay = frame.copy()
 
             ret, buffer = cv2.imencode(".jpg", frame)
             if not ret:

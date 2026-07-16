@@ -190,7 +190,7 @@ async function analyzeVideo() {
 
 // ── Update ADAS KV panel ──────────────────────────────────
 function updateADASPanel(data) {
-    const last = data.last_frame_result || {};
+    const last = data.last_frame_result || data; // Ho tro ca ket qua analyze va live-status
     const direction  = last.direction || "UNKNOWN";
     const offset     = last.lane_offset;
     const numDets    = last.num_detections || 0;
@@ -224,8 +224,48 @@ function updateADASPanel(data) {
     kvTargets.innerHTML = `<span class="badge ${targClass}">${targText}</span>`;
 
     kvFrames.textContent    = frames;
-    kvResolution.textContent = `${width}x${height}`;
-    kvFps.textContent        = fps;
+    if (width !== "--" || kvResolution.textContent === "--") {
+        kvResolution.textContent = `${width}x${height}`;
+    }
+    if (fps !== "--" || kvFps.textContent === "--") {
+        kvFps.textContent        = fps;
+    }
+
+    // Render danh sach xe tu gRPC vehicle-service
+    const vehicleListPanel = document.getElementById("vehicle-list-panel");
+    if (vehicleListPanel) {
+        const objects = last.objects || [];
+        if (!configState.vehicle_detection) {
+            vehicleListPanel.innerHTML = `<div class="see-more" style="color:var(--text-dim);">Chuc nang nhan dien xe da tat</div>`;
+        } else if (objects.length === 0) {
+            vehicleListPanel.innerHTML = `<div class="see-more">Khong phat hien phuong tien</div>`;
+        } else {
+            vehicleListPanel.innerHTML = objects.map(obj => {
+                let badgeClass = "safe";
+                let badgeText = "An toan";
+                if (obj.color === "orange") {
+                    badgeClass = "warning";
+                    badgeText = "Canh bao";
+                } else if (obj.color === "red") {
+                    badgeClass = "danger";
+                    badgeText = "Nguy hiem";
+                }
+                
+                return `
+                    <div class="vehicle-item">
+                        <div>
+                            <span class="v-id">#${obj.track_id}</span>
+                            <span class="v-class">${obj.class_name}</span>
+                        </div>
+                        <div>
+                            <span class="v-dist">${obj.distance} m</span>
+                            <span class="v-badge ${badgeClass}">${badgeText}</span>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        }
+    }
 
     // JSON output
     jsonOutput.textContent = JSON.stringify(data, null, 2);
@@ -276,3 +316,133 @@ function addAlert(msg, type = "neutral") {
         alertList.removeChild(alertList.lastChild);
     }
 }
+
+// ── Bo loc tai nguyen (Toggle API Toggles) ──────────────────
+let configState = {
+    lane_detection: true,
+    deeplab_segmentation: true,
+    vehicle_detection: true,
+    driver_monitoring: true,
+    seatbelt_detection: true
+};
+
+async function syncToggles() {
+    try {
+        const res = await fetch(`${API}/api/config`);
+        if (!res.ok) return;
+        configState = await res.json();
+        
+        updateToggleUI("lane", configState.lane_detection);
+        updateToggleUI("vehicle", configState.vehicle_detection);
+        updateToggleUI("deeplab", configState.deeplab_segmentation);
+        updateToggleUI("driver", configState.driver_monitoring);
+        updateToggleUI("seatbelt", configState.seatbelt_detection);
+    } catch (e) {
+        console.error("Loi dong bo bo loc", e);
+    }
+}
+
+function updateToggleUI(service, isActive) {
+    const el = document.getElementById(`toggle-${service}`);
+    if (!el) return;
+    if (isActive) {
+        el.classList.remove("off");
+    } else {
+        el.classList.add("off");
+    }
+}
+
+async function onToggleClick(service, toggleId) {
+    const element = document.getElementById(toggleId);
+    if (!element) return;
+
+    element.classList.toggle("off");
+    const isActive = !element.classList.contains("off");
+    
+    if (service === "camera") {
+        addAlert(`Camera ADAS: ${isActive ? 'BAT' : 'TAT'}`);
+        return;
+    }
+    
+    if (service === "lane") configState.lane_detection = isActive;
+    else if (service === "vehicle") configState.vehicle_detection = isActive;
+    else if (service === "deeplab") configState.deeplab_segmentation = isActive;
+    else if (service === "driver") configState.driver_monitoring = isActive;
+    else if (service === "seatbelt") configState.seatbelt_detection = isActive;
+    
+    try {
+        const res = await fetch(`${API}/api/config`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(configState)
+        });
+        if (res.ok) {
+            addAlert(`Bo loc ${service.toUpperCase()}: ${isActive ? 'BAT' : 'TAT'}`);
+        } else {
+            throw new Error();
+        }
+    } catch (e) {
+        addAlert("Khong the cap nhat bo loc len server", "urgent");
+        // Revert UI on failure
+        element.classList.toggle("off");
+    }
+}
+
+// ── Polling Live Stats ────────────────────────────────────
+async function pollLiveStats() {
+    // Chi poll neu stream-img dang duoc load (nguoi dung dang xem live stream)
+    if (streamImg.src && !streamImg.src.includes("placeholder")) {
+        try {
+            const res = await fetch(`${API}/api/live-status`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data && Object.keys(data).length > 0) {
+                    updateADASPanel(data);
+                }
+            }
+        } catch (e) {
+            // silent catch
+        }
+    }
+}
+
+// ── Polling Aggregator Alerts ─────────────────────────────
+async function pollAggregatorEvents() {
+    try {
+        const res = await fetch(`${API}/api/events?limit=20`);
+        if (!res.ok) return;
+        const events = await res.json();
+        
+        // Filter events based on active services
+        const filtered = events.filter(e => {
+            if (e.source === "driver-service" && !configState.driver_monitoring) return false;
+            if (e.source === "seatbelt-service" && !configState.seatbelt_detection) return false;
+            if (e.source === "lane-service" && !configState.lane_detection) return false;
+            if (e.source === "vehicle-service" && !configState.vehicle_detection) return false;
+            return true;
+        });
+        
+        if (filtered.length > 0) {
+            alertList.innerHTML = filtered.map(e => {
+                let badgeClass = "neutral";
+                if (e.alert_level === "DANGEROUS" || e.alert_level === "DROWSY" || e.alert_level === "WARNING") {
+                    badgeClass = "urgent";
+                } else if (e.alert_level === "TIRED") {
+                    badgeClass = "pending";
+                }
+                
+                let msg = e.data?.message || `Event from ${e.source}`;
+                return `<div class="alert-item ${badgeClass}">● ${msg}</div>`;
+            }).join("");
+        } else {
+            alertList.innerHTML = `<div class="alert-item neutral">Chua co canh bao</div>`;
+        }
+    } catch (e) {
+        // silent catch
+    }
+}
+
+// Khoi dong cac tien trinh khi load trang
+syncToggles();
+setInterval(pollLiveStats, 500);
+setInterval(pollAggregatorEvents, 1500);

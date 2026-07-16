@@ -21,7 +21,7 @@ class LaneGeometry:
     - Averaging 10 frame liên tiếp để làm mượt đường biên.
     """
 
-    def __init__(self, lane_width_meters: float = 3.7, n_frames_avg: int = 3):
+    def __init__(self, lane_width_meters: float = 3.7, n_frames_avg: int = 15):
         self.lane_width_meters = lane_width_meters
 
         # Tọa độ nguồn cho perspective warp (tỷ lệ / frame size)
@@ -29,8 +29,8 @@ class LaneGeometry:
         self.src_pts = np.float32([
             (0.44, 0.55),   # Top-left  — nâng cao để nhìn xa trên cao tốc
             (0.56, 0.55),   # Top-right — nâng cao để nhìn xa trên cao tốc
-            (0.12, 1.00),   # Bottom-left
-            (0.88, 1.00),   # Bottom-right
+            (0.18, 1.00),   # Bottom-left — thu hẹp lại để loại bỏ làn bên cạnh và hộ lan
+            (0.82, 1.00),   # Bottom-right — thu hẹp lại để loại bỏ làn bên cạnh và hộ lan
         ])
         self.dst_pts = np.float32([
             (0.00, 0.00),   # Top-left
@@ -109,9 +109,15 @@ class LaneGeometry:
 
         # Histogram nửa dưới ảnh để tìm vị trí bắt đầu
         histogram = np.sum(warped[h // 2:, :], axis=0)
-        mid = w // 2
-        leftx_base  = int(np.argmax(histogram[:mid]))
-        rightx_base = int(np.argmax(histogram[mid:])) + mid
+        
+        # Tối ưu: Giới hạn nhẹ vùng quét để loại bỏ nhiễu sát rìa cực biên
+        left_search_min = int(w * 0.02)
+        left_search_max = int(w * 0.47)
+        right_search_min = int(w * 0.53)
+        right_search_max = int(w * 0.98)
+        
+        leftx_base = int(np.argmax(histogram[left_search_min:left_search_max])) + left_search_min
+        rightx_base = int(np.argmax(histogram[right_search_min:right_search_max])) + right_search_min
 
         window_h = h // n_windows
         nonzero  = warped.nonzero()
@@ -158,6 +164,28 @@ class LaneGeometry:
         lf = np.polyfit(lefty,  leftx,  2)
         rf = np.polyfit(righty, rightx, 2)
 
+        # Kiểm tra xem đường biên trái và phải có cắt chéo nhau (lỗi hình chữ X do nhiễu vỉa hè) không
+        temp_y = np.array([0, h - 1])
+        left_temp_x = lf[0] * temp_y**2 + lf[1] * temp_y + lf[2]
+        right_temp_x = rf[0] * temp_y**2 + rf[1] * temp_y + rf[2]
+        
+        # Nếu cắt nhau (phía trái lấn sang phải), từ chối frame nhiễu này và tái sử dụng dữ liệu lịch sử ổn định
+        if np.any(left_temp_x >= right_temp_x):
+            if len(self._left_a) > 0:
+                # Lấy trực tiếp trạng thái mượt mà cuối cùng trong bộ đệm EMA
+                if hasattr(self, '_left_ema'):
+                    lf_ = self._left_ema
+                    rf_ = self._right_ema
+                else:
+                    lf_ = np.array([np.mean(self._left_a),  np.mean(self._left_b),  np.mean(self._left_c)])
+                    rf_ = np.array([np.mean(self._right_a), np.mean(self._right_b), np.mean(self._right_c)])
+                ploty      = np.linspace(0, h - 1, h)
+                left_fitx  = lf_[0] * ploty**2 + lf_[1] * ploty + lf_[2]
+                right_fitx = rf_[0] * ploty**2 + rf_[1] * ploty + rf_[2]
+                return left_fitx, right_fitx, ploty, lf_, rf_
+            else:
+                return None
+
         # Lưu hệ số vào buffer
         self._left_a.append(lf[0]);  self._left_b.append(lf[1]);  self._left_c.append(lf[2])
         self._right_a.append(rf[0]); self._right_b.append(rf[1]); self._right_c.append(rf[2])
@@ -168,9 +196,21 @@ class LaneGeometry:
             if len(buf) > self._n:
                 buf.pop(0)
 
-        # Hệ số trung bình
-        lf_ = np.array([np.mean(self._left_a),  np.mean(self._left_b),  np.mean(self._left_c)])
-        rf_ = np.array([np.mean(self._right_a), np.mean(self._right_b), np.mean(self._right_c)])
+        # Hệ số trung bình của lịch sử
+        lf_raw = np.array([np.mean(self._left_a),  np.mean(self._left_b),  np.mean(self._left_c)])
+        rf_raw = np.array([np.mean(self._right_a), np.mean(self._right_b), np.mean(self._right_c)])
+
+        # Tối ưu nâng cao: Áp dụng Lọc số mũ (EMA) để triệt tiêu hoàn toàn rung lắc
+        if not hasattr(self, '_left_ema'):
+            self._left_ema = lf_raw
+            self._right_ema = rf_raw
+        else:
+            alpha = 0.06  # Giá trị 0.06 giúp làn đường bám cực kỳ đầm, mượt và vững chãi
+            self._left_ema = alpha * lf_raw + (1 - alpha) * self._left_ema
+            self._right_ema = alpha * rf_raw + (1 - alpha) * self._right_ema
+
+        lf_ = self._left_ema
+        rf_ = self._right_ema
 
         ploty      = np.linspace(0, h - 1, h)
         left_fitx  = lf_[0] * ploty**2 + lf_[1] * ploty + lf_[2]
@@ -396,10 +436,14 @@ class LaneGeometry:
         # Bước 5: Tạo điểm hiển thị trên ảnh gốc (phục vụ vẽ đường thẳng fallback)
         y_bot   = int(ploty[-1])
         y_top   = int(ploty[len(ploty) // 3])
-        left_line  = ((int(left_fitx[len(ploty) // 3]),  y_top),
-                      (int(left_fitx[-1]),               y_bot))
-        right_line = ((int(right_fitx[len(ploty) // 3]), y_top),
-                      (int(right_fitx[-1]),              y_bot))
+        
+        pt_l_top = self._warp_point_inv((int(left_fitx[len(ploty) // 3]), y_top), (w, h))
+        pt_l_bot = self._warp_point_inv((int(left_fitx[-1]), y_bot), (w, h))
+        pt_r_top = self._warp_point_inv((int(right_fitx[len(ploty) // 3]), y_top), (w, h))
+        pt_r_bot = self._warp_point_inv((int(right_fitx[-1]), y_bot), (w, h))
+        
+        left_line  = (pt_l_top, pt_l_bot) if (pt_l_top and pt_l_bot) else None
+        right_line = (pt_r_top, pt_r_bot) if (pt_r_top and pt_r_bot) else None
 
         # Bước 6: Vẽ overlay
         overlay = None
