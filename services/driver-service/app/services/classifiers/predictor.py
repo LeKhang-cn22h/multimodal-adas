@@ -1,11 +1,3 @@
-"""
-Predictor.
-
-Load cả Eye CNN và Mouth CNN một lần.
-
-Đây là interface duy nhất mà drowsiness detector sử dụng.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,51 +11,39 @@ from app.services.classifiers.mouth_classifier import MouthClassifier
 
 class Predictor:
 
-    def __init__(
-        self,
-        eye_model_path: str | Path,
-        mouth_model_path: str | Path,
-    ) -> None:
+    def __init__(self, eye_model_path: str | Path, mouth_model_path: str | Path) -> None:
+        self.eye_classifier = EyeClassifier(eye_model_path)
+        self.mouth_classifier = MouthClassifier(mouth_model_path)
 
-        self.eye_classifier = EyeClassifier(
-            eye_model_path,
-        )
+    def predict_eyes(self, left_eye_roi, right_eye_roi) -> dict:
 
-        self.mouth_classifier = MouthClassifier(
-            mouth_model_path,
-        )
+        left = self.eye_classifier.predict(left_eye_roi)
+        right = self.eye_classifier.predict(right_eye_roi)
 
-    def predict_eye(
-        self,
-        eye_roi: np.ndarray | Image.Image,
-    ) -> dict:
+        avg_prob = (left["probability"] + right["probability"]) / 2
 
-        return self.eye_classifier.predict(
-            eye_roi,
-        )
+        if avg_prob >= 0.5:
+            label = "OPEN"
+            confidence = avg_prob
+        else:
+            label = "CLOSED"
+            confidence = 1.0 - avg_prob
 
-    def predict_mouth(
-        self,
-        mouth_roi: np.ndarray | Image.Image,
-    ) -> dict:
+        return {
+            "label": label,
+            "confidence": float(confidence),
+            "probability": float(avg_prob),
+            "left": left,
+            "right": right,
+        }
 
-        return self.mouth_classifier.predict(
-            mouth_roi,
-        )
+    def predict_mouth(self, mouth_roi) -> dict:
+        return self.mouth_classifier.predict(mouth_roi)
 
-    def predict(
-        self,
-        eye_roi: np.ndarray | Image.Image,
-        mouth_roi: np.ndarray | Image.Image,
-    ) -> dict:
+    def predict(self, left_eye_roi, right_eye_roi, mouth_roi) -> dict:
 
-        eye_result = self.predict_eye(
-            eye_roi,
-        )
-
-        mouth_result = self.predict_mouth(
-            mouth_roi,
-        )
+        eye_result = self.predict_eyes(left_eye_roi, right_eye_roi)
+        mouth_result = self.predict_mouth(mouth_roi)
 
         return {
             "eye": eye_result,

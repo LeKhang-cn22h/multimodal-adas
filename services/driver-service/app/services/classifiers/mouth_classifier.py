@@ -67,27 +67,18 @@ class MouthClassifier:
     ) -> dict:
 
         tensor = self.preprocess(image)
-
         tensor = tensor.to(self.device)
 
         logits = self.model(tensor)
+        probability = torch.sigmoid(logits).item()
 
-        probability = torch.sigmoid(
-            logits
-        ).item()
-
-        # probability = P(No_Yawn)
+        # probability = P(Yawn)  (class 1 theo ImageFolder alphabet: no_yawn=0, yawn=1)
 
         if probability >= 0.5:
-
-            label = "NO_YAWN"
-
-            confidence = probability
-
-        else:
-
             label = "YAWN"
-
+            confidence = probability
+        else:
+            label = "NO_YAWN"
             confidence = 1.0 - probability
 
         return {

@@ -27,8 +27,6 @@ class Settings:
     # ── Feature extraction thresholds (TS-feature-extraction) ──────────
     MAR_THRESHOLD: float = float(os.getenv("MAR_THRESHOLD", "0.6"))
     PERCLOS_WINDOW_SECONDS: int = int(os.getenv("PERCLOS_WINDOW_SECONDS", "30"))
-    HEAD_POSE_PITCH_THRESHOLD: float = float(os.getenv("HEAD_POSE_PITCH_THRESHOLD", "20.0"))
-    HEAD_POSE_YAW_THRESHOLD: float = float(os.getenv("HEAD_POSE_YAW_THRESHOLD", "25.0"))
     FPS_ASSUMPTION: int = int(os.getenv("FPS_ASSUMPTION", "30"))
 
     # ── Window sizes (frames) — đồng bộ với TS-dataset-training.md ────

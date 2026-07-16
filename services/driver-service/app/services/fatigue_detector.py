@@ -28,7 +28,6 @@ logger = get_logger()
 # Default (no-face) feature snapshot
 _EMPTY_FEATURES: dict[str, float] = {
     "ear": 0.0, "perclos": 0.0, "mar": 0.0,
-    "yaw": 0.0, "pitch": 0.0, "roll": 0.0,
 }
 
 

@@ -95,8 +95,7 @@ def _make_mock_classifier(mocker):
         fatigue_level="Tired",
         confidence=0.8,
         classification_method="mock",
-        features={"ear": 0.2, "perclos": 20.0, "mar": 0.1,
-                   "yaw": 0.0, "pitch": 0.0, "roll": 0.0},
+        features={"ear": 0.2, "perclos": 20.0, "mar": 0.1},
     )
     return mock_clf
 
