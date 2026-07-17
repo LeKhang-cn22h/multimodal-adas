@@ -1,18 +1,23 @@
 """Orchestrates camera + AI pipeline + RabbitMQ lifecycle for driver-service.
-
+ 
 ADR-006 / TS-service-merge:
     CameraCaptureService (capture thread)
         → queue.Queue(maxsize=2, put_nowait)
-        → worker thread (FatigueDetector → ResultPublisher)
-
+        → worker thread (FatigueDetector + SeatbeltDetector → ResultPublisher)
+ 
 Wires together:
-    CameraCaptureService → queue.Queue → FatigueDetector → ResultPublisher
+    CameraCaptureService → queue.Queue → FatigueDetector
+                                      → SeatbeltDetector
+                                      → ResultPublisher
 """
 
 import queue
 import threading
 import time
 from pathlib import Path
+from typing import Optional
+
+import numpy as np
 
 from app.core.config import get_settings
 from app.messaging.connection import RabbitMQConnectionManager
@@ -25,6 +30,7 @@ from app.services.feature_service import FeatureService
 from app.services.mediapipe_service import FaceLandmarkerService
 from app.services.rf_classifier import RFClassifier
 from app.services.rule_based_classifier import RuleBasedClassifier
+from app.services.seatbelt_detector import SeatbeltDetector
 from app.utils.logger import get_logger
 
 logger = get_logger()
@@ -81,6 +87,19 @@ class MessagingOrchestrator:
         )
         self._publisher = ResultPublisher(self._connection_manager)
 
+        # ── Seatbelt detector (TS-gradio-voice-alert) ────────────────
+        seatbelt_model = str(
+            Path(__file__).resolve().parent.parent
+            / "models" / "best.pt"
+        )
+        self._seatbelt_detector = SeatbeltDetector(
+            model_path=seatbelt_model,
+            confidence_threshold=0.3,
+        )
+
+        # ── Latest result cache (for Gradio UI) ──────────────────────
+        self._latest_result: Optional[dict] = None
+
         # ── Worker thread state ─────────────────────────────────────
         self._worker_thread: threading.Thread | None = None
         self._worker_stop_event = threading.Event()
@@ -102,6 +121,19 @@ class MessagingOrchestrator:
         """Expose camera for GET /frame and /health."""
         return self._camera_service
 
+    @property
+    def latest_result(self) -> Optional[dict]:
+        """Latest combined inference result (fatigue + seatbelt).
+
+        Returns None before the first frame has been processed.
+        """
+        return self._latest_result
+
+    @property
+    def seatbelt_detector(self):
+        """Expose SeatbeltDetector for UI video processing."""
+        return self._seatbelt_detector
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -113,16 +145,12 @@ class MessagingOrchestrator:
         # 1. Load AI model
         self._landmark_service.load_model()
 
-        # 2. Try RabbitMQ (non-blocking — camera + AI work without it)
-        try:
-            self._connection_manager.connect_or_fail(max_retries=3)
-            self._publisher.start()
-            logger.info("RabbitMQ connected, ResultPublisher ready")
-        except Exception as exc:
-            logger.warning(
-                "RabbitMQ unavailable (%s). Running without result publishing.",
-                exc,
-            )
+        # 2. Try RabbitMQ in background (do NOT block startup)
+        threading.Thread(
+            target=self._connect_rabbitmq,
+            daemon=True,
+            name="rmq-connect",
+        ).start()
 
         # 3. Mark detector ready
         self._detector.mark_ready()
@@ -176,6 +204,8 @@ class MessagingOrchestrator:
         No drop logic on worker side — queue maxsize is enforced by
         capture thread via put_nowait, so queue size is always
         ≤ MAX_QUEUE_SIZE.  Worker simply processes whatever arrives.
+
+        TS-gradio-voice-alert: added SeatbeltDetector + latest_result cache.
         """
         frame_id = 0
         while not self._worker_stop_event.is_set():
@@ -185,9 +215,50 @@ class MessagingOrchestrator:
                 continue
 
             timestamp = time.time()
-            result = self._detector.process(jpeg_bytes, frame_id, timestamp)
-            self._publisher.publish(result)
+
+            # ── Fatigue detection ──────────────────────────────────
+            fatigue_result = self._detector.process(
+                jpeg_bytes, frame_id, timestamp,
+            )
+
+            # ── Seatbelt detection (decode JPEG for YOLO) ──────────
+            try:
+                import cv2
+                np_arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
+                frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                if frame is not None:
+                    sb = self._seatbelt_detector.detect(frame)
+                else:
+                    sb = {"has_seatbelt": False, "seatbelt_confidence": None}
+            except Exception:
+                sb = {"has_seatbelt": False, "seatbelt_confidence": None}
+
+            # ── Combine & cache ────────────────────────────────────
+            combined = {
+                **fatigue_result,
+                "has_seatbelt": sb["has_seatbelt"],
+                "seatbelt_confidence": sb.get("seatbelt_confidence"),
+            }
+            self._latest_result = combined
+
+            # ── Publish ────────────────────────────────────────────
+            self._publisher.publish(combined)
             frame_id += 1
+
+    # ------------------------------------------------------------------
+    # RabbitMQ background connection
+    # ------------------------------------------------------------------
+
+    def _connect_rabbitmq(self) -> None:
+        """Connect to RabbitMQ in background (non-blocking startup)."""
+        try:
+            self._connection_manager.connect_or_fail(max_retries=1)
+            self._publisher.start()
+            logger.info("RabbitMQ connected, ResultPublisher ready")
+        except Exception as exc:
+            logger.warning(
+                "RabbitMQ unavailable (%s). Running without publish.", exc,
+            )
 
     # ------------------------------------------------------------------
     # Classifier factory (TS-rf-integration)

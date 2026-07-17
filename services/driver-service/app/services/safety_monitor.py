@@ -104,12 +104,12 @@ class SafetyMonitor:
             text = f"No seatbelt ({self._no_seatbelt_streak}/{self.seatbelt_warning_frame_threshold})"
             color = (0, 140, 255)
 
-        text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+        text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 3)[0]
         x = frame.shape[1] - text_size[0] - 20
 
         cv2.putText(
-            frame, text, (x, 40),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2,
+            frame, text, (x, 45),
+            cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 3,
         )
 
         if is_warning:
