@@ -19,7 +19,7 @@ class DeepLabSegmenter:
       - lane_marking_mask:  Mặt nạ vạch kẻ đường    (HxW, giá trị 0/255)
     """
 
-    def __init__(self, model_path: str = None, device: str = "cpu"):
+    def __init__(self, model_path: str = "", device: str = "cpu"):
         import os
         import sys
         
@@ -28,7 +28,8 @@ class DeepLabSegmenter:
         default_paths = [
             os.path.join(app_dir, "models", "best_deeplab.pth"),
             os.path.join(app_dir, "training", "models", "best_deeplab.pth"),
-            os.path.join(os.path.dirname(app_dir), "models", "best_deeplab.pth")
+            os.path.join(os.path.dirname(app_dir), "models", "best_deeplab.pth"),
+            os.path.join(os.path.dirname(app_dir), "models", "best_deeplabv3_mobilenet_voc_os16.pth"),
         ]
         
         self.model_path = model_path
@@ -36,8 +37,9 @@ class DeepLabSegmenter:
             for path in default_paths:
                 if os.path.exists(path):
                     self.model_path = path
+                    print("[DEEPLAB] DA NAP MODEL TAI", self.model_path)
                     break
-
+                    
         self.device = device
         self._morph_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         self._dilation_kernel = np.ones((3, 3), np.uint8)
@@ -53,7 +55,7 @@ class DeepLabSegmenter:
                 
                 self.device_torch = torch.device("cuda" if torch.cuda.is_available() else "cpu")
                 self.model = get_model(num_classes=3)
-                self.model.load_state_dict(torch.load(self.model_path, map_location=self.device_torch))
+                self.model.load_state_dict(torch.load(self.model_path, map_location=self.device_torch, weights_only=False))
                 self.model.to(self.device_torch)
                 self.model.eval()
                 self.has_weights = True

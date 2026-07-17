@@ -128,6 +128,12 @@ def create_gradio_app(analyze_video_file_func, change_stream_func):
             return f"Đang phát: **{selected_video}**"
         return f"Không tìm thấy video: **{selected_video}**"
 
+    def on_apply_camera(cam_idx):
+        if cam_idx is None:
+            return "Vui lòng nhập camera index hợp lệ"
+        change_stream_func(str(int(cam_idx)))
+        return f"Đang phát Camera Index: **{int(cam_idx)}**"
+
     def on_browse_file(file_path):
         """Xử lý khi người dùng bấm nút 'Chọn file bất kỳ' và chọn 1 video
         từ máy của họ (không giới hạn trong danh sách có sẵn)."""
@@ -314,7 +320,15 @@ def create_gradio_app(analyze_video_file_func, change_stream_func):
                     elem_id="browse_btn",
                 )
 
-                cam_status = gr.Markdown(f"Đang phát: **{default_val}**")
+                with gr.Accordion("Camera thật / OBS Virtual Camera", open=False):
+                    camera_index = gr.Number(
+                        value=0,
+                        precision=0,
+                        label="Camera Index (0, 1, 2...)"
+                    )
+                    apply_cam_btn = gr.Button("Áp dụng Camera", variant="primary")
+
+                cam_status = gr.Markdown("Đang phát: **Camera Index 0**")
 
             # CỘT GIỮA: Livestream & Upload
             with gr.Column(scale=3):
@@ -346,6 +360,12 @@ def create_gradio_app(analyze_video_file_func, change_stream_func):
         camera_select.change(
             fn=on_camera_change,
             inputs=[camera_select],
+            outputs=[cam_status]
+        )
+
+        apply_cam_btn.click(
+            fn=on_apply_camera,
+            inputs=[camera_index],
             outputs=[cam_status]
         )
 

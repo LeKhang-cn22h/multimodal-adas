@@ -31,7 +31,7 @@ services:
       DRIVER_SERVICE_URL: http://driver-service:8001
       LANE_SERVICE_URL: http://lane-service:8002
       AGGREGATOR_SERVICE_URL: http://aggregator-service:8003
-      VEHICLE_SERVICE_URL: http://vehicle-service:8004
+      VEHICLE_SERVICE_URL: http://lane-service:8002
       CAMERA_SERVICE_URL: http://driver-service:8001
     depends_on:
       - aggregator-service
@@ -80,7 +80,7 @@ services:
       - aggregator-service
     restart: unless-stopped
 
-  # ─── Lane Service (placeholder) ───────────────────────────────────
+  # ─── Lane Service (Unified) ───────────────────────────────────────
   lane-service:
     build:
       context: ./services/lane-service
@@ -89,25 +89,6 @@ services:
       - "8002:8002"
     environment:
       PORT: 8002
-      AGGREGATOR_URL: http://aggregator-service:8003/event
-      VEHICLE_GRPC_HOST: vehicle-service
-      VEHICLE_GRPC_PORT: 50053
-    networks:
-      - adas-net
-    depends_on:
-      - aggregator-service
-    restart: unless-stopped
-
-  # ─── Vehicle Service (placeholder) ────────────────────────────────
-  vehicle-service:
-    build:
-      context: ./services/vehicle-service
-    container_name: adas-vehicle
-    ports:
-      - "8004:8004"
-      - "50053:50053"
-    environment:
-      PORT: 8004
       AGGREGATOR_URL: http://aggregator-service:8003/event
     networks:
       - adas-net

@@ -16,10 +16,10 @@ from ui import ui_layout
 import requests
 import time
 # Configuration Placeholders
-VIDEO_HOST = '<YOUR_VIDEO_HOST_IP>' 
-VIDEO_PORT = 1234
-BUFFER_SIZE = 1024
 VIDEO_HOST = '127.0.0.1' 
+DRIVER_VIDEO_PORT = 1235
+LANE_VIDEO_PORT = 1236
+BUFFER_SIZE = 65536
 MQ_HOST = '127.0.0.1'
 MQ_QUEUE = 'safety_signals'
 
@@ -90,18 +90,35 @@ def heartbeat_worker(target_url, interval):
         time.sleep(interval)
 
 
-def video_receiver_worker(host, port):
+def video_receiver_worker(host, port, target_key):
     # Open a UDP socket to listen for incoming video frames
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((host, port))
-    
-    print(f"[*] Video receiver listening on {host}:{port}")
-    while True:
-        # Block until data is received on the port
-        data, addr = sock.recvfrom(BUFFER_SIZE)
+    sock.settimeout(1.0)
+    try:
+        sock.bind((host, port))
+    except Exception as e:
+        print(f"[!] Bind failed on {host}:{port}: {e}")
+        return
         
-        # TODO: Decode frame logic and push to global state/queue
-        pass
+    print(f"[*] Video receiver listening on {host}:{port} for {target_key}")
+    temp_file = f"temp_{target_key}.jpg"
+    
+    while True:
+        try:
+            # Block until data is received on the port
+            data, addr = sock.recvfrom(BUFFER_SIZE)
+            if not data:
+                continue
+            # Write raw JPEG byte data to a local temp file
+            with open(temp_file, "wb") as f:
+                f.write(data)
+            # Update the Gradio dashboard state image path
+            global_state[target_key] = temp_file
+        except socket.timeout:
+            continue
+        except Exception as exc:
+            print(f"[!] Error in receiver {target_key}: {exc}")
+            time.sleep(0.1)
 
 def mq_consumer_worker(host, queue_name):
     # Establish connection to the RabbitMQ broker
@@ -125,13 +142,21 @@ def mq_consumer_worker(host, queue_name):
     channel.start_consuming()
 
 def main():
-    # Start the Video Receiver as a daemon thread
-    video_thread = threading.Thread(
+    # Start the Video Receiver for Driver (Port 1235)
+    driver_video_thread = threading.Thread(
         target=video_receiver_worker, 
-        args=(VIDEO_HOST, VIDEO_PORT),
+        args=(VIDEO_HOST, DRIVER_VIDEO_PORT, "video_driver"),
         daemon=True
     )
-    video_thread.start()
+    driver_video_thread.start()
+
+    # Start the Video Receiver for Lane/Front (Port 1236)
+    front_video_thread = threading.Thread(
+        target=video_receiver_worker, 
+        args=(VIDEO_HOST, LANE_VIDEO_PORT, "video_front"),
+        daemon=True
+    )
+    front_video_thread.start()
 
     # Start the RabbitMQ Consumer as a daemon thread
     mq_thread = threading.Thread(
