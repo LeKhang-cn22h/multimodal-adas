@@ -1,2 +1,19 @@
-fastapi==0.111.0
+# Web framework
+fastapi>=0.115.2
 uvicorn[standard]==0.30.1
+python-multipart>=0.0.18
+httpx
+
+# Video processing
+opencv-python-headless==4.10.0.84
+numpy
+
+# UI
+gradio==5.1.0
+huggingface_hub==0.25.2
+
+# YOLOv11 - phat hien phuong tien / vat can
+# torch/torchvision ban CPU, doi sang ban CUDA neu chay tren may co GPU
+torch
+torchvision
+ultralytics

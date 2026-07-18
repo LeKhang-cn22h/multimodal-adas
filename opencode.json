@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    ".opencode/knowledge/architecture.md",
+    ".opencode/knowledge/conventions.md",
+    ".opencode/knowledge/services-map.md",
+    ".opencode/memory/decisions.md",
+    ".opencode/memory/open-questions.md"
+  ],
+  "default_agent": "architect",
+  "permission": {
+    "bash": {
+      "*": "ask",
+      "git status": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "pytest*": "allow",
+      "python -m pytest*": "allow",
+      "docker compose ps*": "allow",
+      "docker compose logs*": "allow"
+    }
+  }
+}
