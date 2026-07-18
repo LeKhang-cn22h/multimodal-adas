@@ -2,9 +2,20 @@ import os
 import sys
 import shutil
 import tempfile
+import socket
+import threading
 import cv2
 import uvicorn
 from fastapi import FastAPI, File, HTTPException, UploadFile
+
+# ── Global Cache Frame for Background Capture ──────────────────────────────────
+latest_jpeg_frame = None
+frame_lock = threading.Lock()
+
+# ── UDP Streaming Configuration ────────────────────────────────────────────────
+udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+DASHBOARD_UDP_HOST = os.getenv("DASHBOARD_UDP_HOST", "127.0.0.1")
+DASHBOARD_UDP_PORT = int(os.getenv("DASHBOARD_UDP_PORT", 1234))
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -26,6 +37,11 @@ print("LanePipeline loaded successfully.")
 
 # ── FastAPI App ───────────────────────────────────────────────────────────────
 app = FastAPI(title="Lane Detection Service", version="2.0.0")
+
+@app.on_event("startup")
+def start_background_capture():
+    t = threading.Thread(target=lane_capture_worker, daemon=True)
+    t.start()
 
 # ── Static Files (Dashboard HTML/CSS/JS) ──────────────────────────────────────
 STATIC_DIR = os.path.join(APP_DIR, "static")
@@ -226,28 +242,21 @@ async def analyze_video(file: UploadFile = File(...)):
         await file.close()
 
 
-latest_live_status = {}
-
-@app.get("/api/live-status")
-def get_live_status():
-    global latest_live_status
-    return latest_live_status
-
-
-@app.get("/stream")
-def stream_video():
-    """MJPEG live stream của video đang active, đã chạy qua ADAS pipeline."""
-    def generate_frames():
-        import time
-        import requests
-        import numpy as np
-        global latest_live_status
-        last_video = None
-        cap = None
-        is_http = False
-        frame_counter = 0
-        last_overlay = None   # Cache overlay từ frame trước để tái sử dụng
-        while True:
+def lane_capture_worker():
+    import time
+    import requests
+    import numpy as np
+    global latest_live_status, latest_jpeg_frame
+    
+    print("[*] Lane background capture worker started")
+    last_video = None
+    cap = None
+    is_http = False
+    frame_counter = 0
+    last_overlay = None
+    
+    while True:
+        try:
             global current_stream_path
             if current_stream_path != last_video:
                 if cap is not None:
@@ -257,7 +266,7 @@ def stream_video():
                 is_http = current_stream_path.startswith("http://") or current_stream_path.startswith("https://")
                 if not is_http:
                     cap = cv2.VideoCapture(last_video)
-
+                    
             if is_http:
                 try:
                     r = requests.get(current_stream_path, timeout=0.5)
@@ -277,12 +286,11 @@ def stream_video():
                     time.sleep(0.1)
                     last_video = None
                     continue
-
                 success, frame = cap.read()
                 if not success:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     continue
-
+                    
             # Frame skipping: chạy ADAS pipeline mỗi 2 frame để tăng FPS
             frame_counter += 1
             if frame_counter % 2 == 0:
@@ -293,16 +301,69 @@ def stream_video():
             else:
                 latest_live_status = global_pipeline.process_frame(frame, visualize=True)
                 last_overlay = frame.copy()
-
+                
             ret, buffer = cv2.imencode(".jpg", frame)
             if not ret:
                 continue
+                
+            jpeg_bytes = buffer.tobytes()
+            
+            with frame_lock:
+                latest_jpeg_frame = jpeg_bytes
+                
+            try:
+                if len(jpeg_bytes) < 65000:
+                    udp_sock.sendto(jpeg_bytes, (DASHBOARD_UDP_HOST, DASHBOARD_UDP_PORT))
+            except Exception:
+                pass
+                
+            # Duy trì tốc độ ~25 FPS
+            time.sleep(0.04)
+            
+        except Exception as e:
+            print(f"[Lane Capture Error] {e}")
+            time.sleep(0.1)
+            
+    if cap is not None:
+        cap.release()
 
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
-        if cap is not None:
-            cap.release()
+latest_live_status = {}
+
+@app.get("/api/live-status")
+def get_live_status():
+    global latest_live_status
+    return latest_live_status
+
+
+@app.get("/stream")
+def stream_video():
+    """MJPEG live stream của video đang active, đã chạy qua ADAS pipeline."""
+    async def generate_frames():
+        import asyncio
+        global latest_jpeg_frame
+        _placeholder = None
+        try:
+            while True:
+                with frame_lock:
+                    frame = latest_jpeg_frame
+                if frame is None:
+                    if _placeholder is None:
+                        black = np.zeros((360, 640, 3), dtype=np.uint8)
+                        cv2.putText(black, "Waiting for source...",
+                                    (120, 190), cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.8, (255, 255, 255), 2)
+                        _, jpg = cv2.imencode(".jpg", black,
+                                              [cv2.IMWRITE_JPEG_QUALITY, 80])
+                        _placeholder = jpg.tobytes()
+                    frame = _placeholder
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                await asyncio.sleep(0.04)  # ~25 FPS
+        except (asyncio.CancelledError, GeneratorExit):
+            pass
+        except Exception:
+            pass
 
     return StreamingResponse(
         generate_frames(),

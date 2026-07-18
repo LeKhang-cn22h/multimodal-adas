@@ -3,6 +3,13 @@
 Initialises MediaPipe model, Gradio UI, Voice Alert, MJPEG stream.
 """
 
+
+
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -17,11 +24,8 @@ from app.services.voice_alert import VoiceAlertService, set_voice_alert
 from app.ui.gradio_app import build_ui
 from app.utils.logger import get_logger
 
-@app.get("/health")
-def health():
-    return {"status": "ok", "service": "driver-service"}
+logger = get_logger()
 
-<<<<<<< HEAD
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -78,12 +82,15 @@ app = FastAPI(
 app.include_router(fatigue_router)
 
 
-# ── MJPEG video feed ──────────────────────────────────────────────────
+@app.get("/health")
+def health():
+    return {"status": "ok", "service": "driver-service"}
+
 
 @app.get("/video_feed")
 async def video_feed(request: Request):
     """MJPEG stream for <img src="/video_feed">."""
-    import app.ui.gradio_app as gradio_ui
+    orchestrator = get_orchestrator()
 
     _placeholder: bytes | None = None
 
@@ -93,7 +100,7 @@ async def video_feed(request: Request):
             while True:
                 if await request.is_disconnected():
                     break
-                frame = gradio_ui.get_stream_frame()
+                frame = orchestrator.camera_service.latest_jpeg
                 if frame is None:
                     if _placeholder is None:
                         import cv2
@@ -108,9 +115,7 @@ async def video_feed(request: Request):
                     frame = _placeholder
                 yield (b"--frame\r\n"
                        b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
-                if not gradio_ui._stream_active:
-                    import asyncio
-                    await asyncio.sleep(0.1)
+                await asyncio.sleep(0.033)  # ~30 FPS
         except (asyncio.CancelledError, GeneratorExit):
             pass  # clean shutdown — ignore
         except Exception:

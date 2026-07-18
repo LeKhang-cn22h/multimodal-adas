@@ -1,251 +1,98 @@
-"""Gradio UI — same pipeline as app/demo/run_webcam_with_controls.py
+"""Gradio UI — reads from Orchestrator camera stream and inference results.
 
-MJPEG streaming + real-time status panel + stop / change video.
+Provides a web interface showing real-time status and MJPEG stream.
 """
 
 from __future__ import annotations
 
 import time
-import threading
-
-import cv2
+import logging
 import gradio as gr
-import numpy as np
 
-from app.config import EYE_MODEL, MOUTH_MODEL, SEATBELT_MODEL
-from app.core.app_runtime_config import AppRuntimeConfig
-from app.services.drowsiness_detector import DrowsinessDetector
-from app.services.safety_monitor import SafetyMonitor
-from app.services.seatbelt_detector import SeatbeltDetector
-from app.services.voice_alert import get_voice_alert
+from app.core.config import get_settings
+from app.messaging.orchestrator import get_orchestrator
 from app.utils.logger import get_logger
 
 logger = get_logger()
 
-# ── Pipeline ──────────────────────────────────────────────────────────
-
-_drowsiness: DrowsinessDetector | None = None
-_seatbelt: SeatbeltDetector | None = None
-_monitor: SafetyMonitor | None = None
-_runtime_config: AppRuntimeConfig | None = None
-
-# MJPEG stream
-_stream_frame: bytes | None = None
-_stream_lock = threading.Lock()
+# ── Pipeline State ───────────────────────────────────────────────────
 _stream_active = False
-_stream_source: str = ""
-_frame_idx: int = 0
-_fps_source: float = 30.0
-_alert_warmup: int = 90
-_stream_thread: threading.Thread | None = None
-_stream_cap: cv2.VideoCapture | None = None
-
-# Cached overlay (updated by AI, applied by display)
-_overlay_lock = threading.Lock()
-_overlay_cache: dict = {}
-_last_overlay_frame = None
-
-# Shared buffer: latest raw frame for AI thread
-_raw_frame_buf: np.ndarray | None = None
-_ai_skip_count = 0  # count frames to skip AI
-
-
-def _init_pipeline():
-    global _drowsiness, _seatbelt, _monitor, _runtime_config
-    if _monitor is not None:
-        return
-    _runtime_config = AppRuntimeConfig(
-        drowsiness_enabled=True,
-        seatbelt_enabled=True,
-        seatbelt_check_every_n_frames=10,
-    )
-    _drowsiness = DrowsinessDetector(
-        eye_model_path=str(EYE_MODEL),
-        mouth_model_path=str(MOUTH_MODEL),
-    )
-    _seatbelt = SeatbeltDetector(model_path=str(SEATBELT_MODEL))
-    _monitor = SafetyMonitor(
-        drowsiness_detector=_drowsiness,
-        seatbelt_detector=_seatbelt,
-        runtime_config=_runtime_config,
-    )
-
-
-# =========================================================================
-# MJPEG stream thread
-# =========================================================================
-
-def _stream_loop():
-    """Single loop: read frames, process AI on subset, display all at source FPS."""
-    global _stream_frame, _stream_active, _frame_idx, _stream_cap
-    global _overlay_cache, _last_overlay_frame, _ai_skip_count
-
-    t_start = time.time()
-
-    try:
-        _stream_cap = (cv2.VideoCapture(0) if _stream_source == "webcam"
-                       else cv2.VideoCapture(_stream_source))
-        cap = _stream_cap
-        if not cap.isOpened():
-            _stream_active = False
-            return
-
-        _init_pipeline()
-        _frame_idx = 0
-        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-        frame_interval = 1.0 / max(fps, 1.0)
-        t_next_display = time.time()
-        last_ai_frame = None  # last frame processed by AI (with overlay)
-
-        while _stream_active:
-            ret, frame_bgr = cap.read()
-            if not ret:
-                if _stream_source != "webcam":
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    _frame_idx = 0
-                    last_ai_frame = None
-                    continue
-                time.sleep(0.01)
-                continue
-
-            # ── AI processing: every frame, but skip if behind schedule ──
-            now = time.time()
-            behind = now > t_next_display + frame_interval * 0.5
-
-            if not behind:
-                try:
-                    timestamp = _frame_idx / max(_fps_source, 1.0)
-                    out_frame, result = _monitor.process(frame_bgr, timestamp=timestamp)
-
-                    drowsiness = result.get("drowsiness") or {}
-                    seatbelt = result.get("seatbelt") or {}
-                    level = drowsiness.get("level")
-                    has_sb = seatbelt.get("has_seatbelt")
-                    eye = drowsiness.get("eye") or {}
-                    mouth = drowsiness.get("mouth") or {}
-
-                    # Voice alert
-                    if _frame_idx > _alert_warmup:
-                        va = get_voice_alert()
-                        if va:
-                            if level and level.value == "DROWSY":
-                                va.alert_fatigue("Drowsy")
-                            if has_sb is False:
-                                va.alert_seatbelt(False)
-
-                    # Resize
-                    h, w = out_frame.shape[:2]
-                    max_w, max_h = 800, 450
-                    scale = min(max_w / w, max_h / h, 1.0)
-                    if scale < 1.0:
-                        out_frame = cv2.resize(out_frame, (int(w * scale), int(h * scale)))
-
-                    last_ai_frame = out_frame
-
-                    # Update status
-                    elapsed = time.time() - t_start
-                    with _overlay_lock:
-                        _overlay_cache.update(
-                            eye=eye.get("label", "--"),
-                            eye_conf=eye.get("confidence", 0.0),
-                            mouth=mouth.get("label", "--"),
-                            mouth_conf=mouth.get("confidence", 0.0),
-                            drowsiness=level.value if level else "NONE",
-                            seatbelt="ON" if has_sb else "OFF",
-                            frame=_frame_idx,
-                            fps=round(_frame_idx / elapsed, 1) if elapsed > 0 else 0.0,
-                            elapsed=round(elapsed, 1),
-                        )
-                except Exception:
-                    pass  # AI error, keep last frame
-
-            # ── Display: use last AI frame, or raw frame if none ──
-            out = last_ai_frame if last_ai_frame is not None else frame_bgr
-            if last_ai_frame is None:
-                h, w = out.shape[:2]
-                max_w, max_h = 800, 450
-                scale = min(max_w / w, max_h / h, 1.0)
-                if scale < 1.0:
-                    out = cv2.resize(out, (int(w * scale), int(h * scale)))
-
-            # ── Maintain FPS ──────────────────────────────────────
-            sleep_time = t_next_display - time.time()
-            if sleep_time > 0:
-                time.sleep(sleep_time)
-            t_next_display = time.time() + frame_interval
-
-            # ── Send ──────────────────────────────────────────────
-            _, jpeg = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, 92])
-            with _stream_lock:
-                _stream_frame = jpeg.tobytes()
-
-            _frame_idx += 1
-
-    except Exception as exc:
-        logger.error("Stream error: %s", exc)
-    finally:
-        if _stream_cap is not None:
-            _stream_cap.release()
-            _stream_cap = None
-        _stream_active = False
 
 
 def start_stream(source: str, fps: float = 30.0):
-    global _stream_source, _fps_source, _stream_active, _stream_thread
-    global _overlay_cache, _last_overlay_frame
-    stop_stream()
-    _stream_source = source
-    _fps_source = fps
+    """Start video/webcam capture in the Orchestrator's camera service."""
+    global _stream_active
+    logger.info("Gradio UI requested start stream with source: %s", source)
     _stream_active = True
-    with _overlay_lock:
-        _overlay_cache = {}
-        _last_overlay_frame = None
-    _stream_thread = threading.Thread(
-        target=_stream_loop, daemon=True, name="mjpeg-stream",
-    )
-    _stream_thread.start()
+    orchestrator = get_orchestrator()
+    orchestrator.camera_service.start(source)
 
 
 def stop_stream():
-    global _stream_active, _stream_thread, _stream_cap
+    """Stop capture in the Orchestrator's camera service."""
+    global _stream_active
+    logger.info("Gradio UI requested stop stream")
     _stream_active = False
-    if _stream_cap is not None:
-        try:
-            _stream_cap.release()
-        except Exception:
-            pass
-        _stream_cap = None
-    if _stream_thread is not None and _stream_thread.is_alive():
-        _stream_thread.join(timeout=0.5)
-
-
-def get_stream_frame() -> bytes | None:
-    with _stream_lock:
-        return _stream_frame
+    orchestrator = get_orchestrator()
+    orchestrator.camera_service.stop()
 
 
 def get_status() -> dict:
-    with _overlay_lock:
-        return dict(_overlay_cache) if _overlay_cache else {
+    """Return current status dictionary for API polling."""
+    orchestrator = get_orchestrator()
+    s = orchestrator.latest_result
+    if s is None:
+        return {
             "eye": "--", "eye_conf": 0.0, "mouth": "--",
             "mouth_conf": 0.0, "drowsiness": "NONE",
             "seatbelt": "--", "frame": 0, "fps": 0.0, "elapsed": 0.0,
         }
 
+    settings = get_settings()
+    
+    # Extract values
+    level = s.get("fatigue_level", "Unknown")
+    
+    features = s.get("features", {})
+    ear = features.get("ear", 0.0)
+    mar = features.get("mar", 0.0)
+    
+    eye_label = "CLOSED" if (0.0 < ear < settings.EAR_THRESHOLD) else "OPEN" if ear > 0.0 else "--"
+    mouth_label = "YAWN" if mar > settings.MAR_THRESHOLD else "NO_YAWN" if mar > 0.0 else "--"
+    
+    has_sb = s.get("has_seatbelt", False)
+    seatbelt_status = "ON" if has_sb else "OFF"
+    
+    frame_id = s.get("frame_id", 0)
+    fps = orchestrator.camera_service.fps
+    uptime = orchestrator.detector.get_stats().get("uptime", 0.0)
 
-# =========================================================================
-# Gradio UI
-# =========================================================================
+    return {
+        "eye": eye_label,
+        "eye_conf": ear,
+        "mouth": mouth_label,
+        "mouth_conf": mar,
+        "drowsiness": level.upper(),
+        "seatbelt": seatbelt_status,
+        "frame": frame_id,
+        "fps": fps,
+        "elapsed": uptime,
+    }
+
 
 def _drowsiness_color(level: str) -> str:
+    """Return background color for the given drowsiness level."""
     return {
-        "NORMAL": "#2ecc71", "DROWSY": "#e74c3c",
-        "NO_FACE": "#e67e22", "FACE_DETECTED_BUT_INVALID": "#3498db",
-        "NONE": "#95a5a6",
+        "Awake": "#2ecc71",       # Green
+        "Tired": "#f1c40f",       # Yellow
+        "Drowsy": "#e67e22",      # Orange
+        "Dangerous": "#e74c3c",   # Red
+        "Unknown": "#95a5a6",     # Grey
     }.get(level, "#95a5a6")
 
 
 def build_ui() -> gr.Blocks:
+    """Build the Gradio interface Blocks."""
 
     with gr.Blocks(title="Driver Safety Monitor", theme=gr.themes.Soft()) as demo:
         gr.Markdown("# 🚗 Driver Safety Monitor")
@@ -286,13 +133,11 @@ def build_ui() -> gr.Blocks:
         )
 
         # ── Video + Zoom + Status ──────────────────────────────────
-
         with gr.Row():
             with gr.Column(scale=3, elem_id="video-col"):
                 gr.HTML("""
                 <style>
-                  /* Fixed-ratio box: video always fits inside, never
-                     stretches the page regardless of source aspect ratio. */
+                  /* Fixed-ratio box: video always fits inside */
                   #video-box {
                     width: 100%;
                     max-width: 900px;
@@ -311,7 +156,7 @@ def build_ui() -> gr.Blocks:
                   #zoomable-video {
                     width: 100%;
                     height: 100%;
-                    object-fit: contain;   /* keep aspect ratio, no crop, no overflow */
+                    object-fit: contain;
                     display: block;
                   }
                   .status-panel { transition:opacity 0.3s; }
@@ -342,7 +187,7 @@ def build_ui() -> gr.Blocks:
                 drowsiness_html = gr.HTML(
                     '<div style="background:#95a5a6;padding:12px;border-radius:8px;'
                     'color:white;font-size:18px;font-weight:bold;text-align:center;">'
-                    'NONE</div>'
+                    'UNKNOWN</div>'
                 )
                 eye_text = gr.Textbox(label="Eye", value="--", interactive=False)
                 mouth_text = gr.Textbox(label="Mouth", value="--", interactive=False)
@@ -355,24 +200,52 @@ def build_ui() -> gr.Blocks:
 
         # ── Status timer ───────────────────────────────────────────
         def _refresh_status():
-            if not _stream_active:
+            orchestrator = get_orchestrator()
+            if not orchestrator.camera_service.is_running:
                 return tuple([gr.update()] * 7)
-            s = get_status()
-            color = _drowsiness_color(s["drowsiness"])
+
+            s = orchestrator.latest_result
+            if s is None:
+                return tuple([gr.update()] * 7)
+
+            settings = get_settings()
+            
+            # Extract values
+            level = s.get("fatigue_level", "Unknown")
+            color = _drowsiness_color(level)
+            
+            features = s.get("features", {})
+            ear = features.get("ear", 0.0)
+            mar = features.get("mar", 0.0)
+            
+            eye_label = "CLOSED" if (0.0 < ear < settings.EAR_THRESHOLD) else "OPEN" if ear > 0.0 else "--"
+            mouth_label = "YAWN" if mar > settings.MAR_THRESHOLD else "NO_YAWN" if mar > 0.0 else "--"
+            
+            has_sb = s.get("has_seatbelt", False)
+            sb_conf = s.get("seatbelt_confidence")
+            sb_conf_str = f" ({sb_conf:.2f})" if sb_conf is not None else ""
+            seatbelt_status = "ON" if has_sb else "OFF"
+            
+            frame_id = s.get("frame_id", 0)
+            fps = orchestrator.camera_service.fps
+            
+            # Elapsed time based on uptime stat
+            uptime = orchestrator.detector.get_stats().get("uptime", 0.0)
+
             return (
                 f'<div style="background:{color};padding:12px;border-radius:8px;'
                 f'color:white;font-size:18px;font-weight:bold;text-align:center;">'
-                f'{s["drowsiness"]}</div>',
-                f'{s["eye"]} ({s["eye_conf"]:.0%})',
-                f'{s["mouth"]} ({s["mouth_conf"]:.0%})',
+                f'{level.upper()}</div>',
+                f'{eye_label} (EAR: {ear:.2f})',
+                f'{mouth_label} (MAR: {mar:.2f})',
                 ('<span style="color:#2ecc71;font-size:16px;">'
-                 f'&#x2705; Seatbelt: {s["seatbelt"]}</span>'
-                 if s["seatbelt"] == "ON" else
+                 f'&#x2705; Seatbelt: {seatbelt_status}{sb_conf_str}</span>'
+                 if seatbelt_status == "ON" else
                  '<span style="color:#e74c3c;font-size:16px;">'
-                 f'&#x26D4; Seatbelt: {s["seatbelt"]}</span>'),
-                str(s["frame"]),
-                str(s["fps"]),
-                f'{s["elapsed"]}s',
+                 f'&#x26D4; Seatbelt: {seatbelt_status}{sb_conf_str}</span>'),
+                str(frame_id),
+                f'{fps:.1f}',
+                f'{uptime:.1f}s',
             )
 
         gr.Timer(0.3).tick(
@@ -382,7 +255,6 @@ def build_ui() -> gr.Blocks:
         )
 
         # ── Button handlers ────────────────────────────────────────
-
         def _start_webcam():
             start_stream("webcam")
             return (
