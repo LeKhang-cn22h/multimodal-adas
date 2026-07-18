@@ -16,6 +16,7 @@ import adas_pb2
 import adas_pb2_grpc
 from core.yolo_detector import YOLODetector
 from core.deeplab_segmenter import DeepLabSegmenter
+from core.traffic_sign_detector import TrafficSignDetector
 from core.geometry import LaneGeometry
 from core.fusion import DataFusion
 from event_client import EventClient
@@ -31,8 +32,9 @@ class LanePipeline:
       5. Gửi cảnh báo lệch làn sang Aggregator (EventClient)
     """
 
-    def __init__(self, yolo_detector: YOLODetector = None):
+    def __init__(self, yolo_detector: YOLODetector = None, traffic_sign_detector: TrafficSignDetector = None):
         self.yolo_detector = yolo_detector or YOLODetector()
+        self.traffic_sign_detector = traffic_sign_detector or TrafficSignDetector()
         self.deeplab = DeepLabSegmenter()
         self.geometry = LaneGeometry()
         self.fusion = DataFusion()
@@ -42,7 +44,8 @@ class LanePipeline:
         self.config = {
             "lane_detection": True,
             "deeplab_segmentation": True,
-            "vehicle_detection": True
+            "vehicle_detection": True,
+            "traffic_sign_detection": True
         }
         
         # Biến đếm frame và bộ đệm cache cho gRPC
@@ -162,6 +165,14 @@ class LanePipeline:
             global_alert_msg = self.last_alert_msg
             camera_occluded = self.last_camera_occluded
 
+        # 2.5 Phát hiện biển báo giao thông
+        traffic_signs = []
+        if self.config.get("traffic_sign_detection", True):
+            try:
+                traffic_signs = self.traffic_sign_detector.detect(frame)
+            except Exception as e:
+                print(f"[LanePipeline] Loi khi detect bien bao: {e}")
+
         # 3. Định dạng dữ liệu tương thích ngược cho DataFusion
         detections = []
         for obj in grpc_objects:
@@ -216,6 +227,16 @@ class LanePipeline:
                 cv2.rectangle(frame, (x1, y1 - h_lbl - 5), (x1 + w_lbl, y1), rgb_color, -1)
                 cv2.putText(frame, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
 
+            # Vẽ bounding boxes cho biển báo giao thông phát hiện được
+            for sign in traffic_signs:
+                sx1, sy1, sx2, sy2 = [int(v) for v in [sign["bbox"]["x1"], sign["bbox"]["y1"], sign["bbox"]["x2"], sign["bbox"]["y2"]]]
+                sign_color = (255, 0, 255)  # Màu tím sáng (Magenta)
+                sign_label = f"{sign['class_name']} ({int(sign['confidence']*100)}%)"
+                cv2.rectangle(frame, (sx1, sy1), (sx2, sy2), sign_color, 2)
+                (sw_lbl, sh_lbl), _ = cv2.getTextSize(sign_label, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+                cv2.rectangle(frame, (sx1, sy1 - sh_lbl - 5), (sx1 + sw_lbl, sy1), sign_color, -1)
+                cv2.putText(frame, sign_label, (sx1, sy1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+
             # Vẽ HUD thông số trên màn hình giám sát
             hud_bg = frame.copy()
             cv2.rectangle(hud_bg, (10, 10), (350, 80), (0, 0, 0), -1)
@@ -253,5 +274,7 @@ class LanePipeline:
             "global_alert_msg": global_alert_msg,
             "camera_occluded": camera_occluded,
             "objects": grpc_objects,
+            "traffic_signs": traffic_signs,
+            "num_traffic_signs": len(traffic_signs),
             "message": "gRPC Lane-Vehicle Pipeline active.",
         }
