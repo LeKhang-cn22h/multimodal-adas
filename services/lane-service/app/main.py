@@ -6,6 +6,7 @@ import socket
 import threading
 import cv2
 import uvicorn
+import gradio as gr
 from fastapi import FastAPI, File, HTTPException, UploadFile
 
 # ── Global Cache Frame for Background Capture ──────────────────────────────────
@@ -25,16 +26,23 @@ from pydantic import BaseModel
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
+# Also add parent directory to resolve relative imports
+sys.path.insert(0, os.path.dirname(APP_DIR))
 
 from config import settings
 from video_source import VideoSource, HttpCameraSource
 from pipeline import LanePipeline
+
+# ── Data directories ──────────────────────────────────────────────────────────
+VIDEO_DIR = os.path.join(APP_DIR, "..", "data", "test_videos")
+VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".wmv", ".flv"}
 
 # ── Global Pipeline Instance (Loaded Once at Startup) ─────────────────────────
 print("Loading LanePipeline (YOLOv11)...")
 global_pipeline = LanePipeline()
 print("LanePipeline loaded successfully.")
 
+# ── FastAPI App ───────────────────────────────────────────────────────────────
 # ── FastAPI App ───────────────────────────────────────────────────────────────
 app = FastAPI(title="Lane Detection Service", version="2.0.0")
 
@@ -47,11 +55,8 @@ def start_background_capture():
 STATIC_DIR = os.path.join(APP_DIR, "static")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# ── Data directories ──────────────────────────────────────────────────────────
-VIDEO_DIR = os.path.join(APP_DIR, "..", "data", "test_videos")
+# Create test_videos directory if it doesn't exist
 os.makedirs(VIDEO_DIR, exist_ok=True)
-
-VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".wmv", ".flv"}
 
 
 def analyze_video_file(
@@ -92,7 +97,7 @@ def analyze_video_file(
 
 
 # ── Active stream state ────────────────────────────────────────────────────────
-current_stream_path = os.path.join(VIDEO_DIR, "solidWhiteRight.mp4")
+current_stream_path = "1"
 
 
 def set_active_video(video_path: str):
@@ -100,146 +105,30 @@ def set_active_video(video_path: str):
     current_stream_path = video_path
     print(f"[Stream] Da chuyen luong sang: {video_path}")
 
+# Mount Gradio Dashboard UI from ui.py
+from ui import create_gradio_app
+demo = create_gradio_app(analyze_video_file, set_active_video)
+app = gr.mount_gradio_app(app, demo, path="/demo")
+
 
 # ── API Endpoints ──────────────────────────────────────────────────────────────
 
-@app.get("/")
-def root():
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
-
-
-@app.get("/ui")
-def dashboard():
-    """Serve dashboard HTML."""
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
-
-
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "lane-service"}
-
-
-# ── Bo loc cau hinh dong (Dynamic Service Config Toggles) ────────────────────
-class ConfigIn(BaseModel):
-    lane_detection: bool
-    deeplab_segmentation: bool
-    vehicle_detection: bool
-    driver_monitoring: bool
-    seatbelt_detection: bool
-
-
-# Cau hinh mac dinh
-active_config = {
-    "lane_detection": True,
-    "deeplab_segmentation": True,
-    "vehicle_detection": True,
-    "driver_monitoring": True,
-    "seatbelt_detection": True
-}
-
-
-@app.get("/api/config")
-def get_config():
-    return active_config
-
-
-@app.post("/api/config")
-def update_config(config_in: ConfigIn):
-    active_config["lane_detection"] = config_in.lane_detection
-    active_config["deeplab_segmentation"] = config_in.deeplab_segmentation
-    active_config["vehicle_detection"] = config_in.vehicle_detection
-    active_config["driver_monitoring"] = config_in.driver_monitoring
-    active_config["seatbelt_detection"] = config_in.seatbelt_detection
+    mq_connected = global_pipeline.is_mq_connected
+    yolo_loaded = global_pipeline.vehicle_detector is not None
+    deeplab_loaded = global_pipeline.deeplab.has_weights
     
-    # Cap nhat vao global_pipeline
-    global_pipeline.update_config(active_config)
-    return {"ok": True, "config": active_config}
-
-
-@app.get("/api/events")
-def get_aggregator_events(limit: int = 20):
-    import requests
-    # Sử dụng AGGREGATOR_URL từ ENV hoặc mặc định là localhost:8003
-    agg_url = os.getenv("AGGREGATOR_URL", "http://localhost:8003/event")
-    events_url = agg_url.replace("/event", "/events")
-    try:
-        r = requests.get(f"{events_url}?limit={limit}", timeout=1.0)
-        if r.status_code == 200:
-            return r.json()
-    except Exception:
-        pass
-    return []
-
-
-@app.get("/videos")
-def list_videos():
-    """Trả về danh sách các video có sẵn trong thư mục data/test_videos."""
-    try:
-        files = sorted([
-            f for f in os.listdir(VIDEO_DIR)
-            if os.path.splitext(f)[1].lower() in VIDEO_EXTS
-        ])
-        return {"videos": ["Live Camera (camera-service)"] + files}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-class SetStreamRequest(BaseModel):
-    filename: str
-
-
-@app.post("/set-stream")
-def set_stream(req: SetStreamRequest):
-    """Chuyển video đang phát MJPEG stream."""
-    if req.filename == "Live Camera (camera-service)":
-        set_active_video(settings.CAMERA_SERVICE_URL)
-        return {"status": "ok", "filename": req.filename}
-
-    if req.filename.startswith("http://") or req.filename.startswith("https://"):
-        set_active_video(req.filename)
-        return {"status": "ok", "filename": req.filename}
-
-    video_path = os.path.join(VIDEO_DIR, req.filename)
-    if not os.path.exists(video_path):
-        raise HTTPException(status_code=404, detail=f"Video not found: {req.filename}")
-    set_active_video(video_path)
-    return {"status": "ok", "filename": req.filename}
-
-
-@app.post("/analyze-video")
-async def analyze_video(file: UploadFile = File(...)):
-    filename = file.filename or "video.mp4"
-    extension = os.path.splitext(filename)[1].lower()
-    allowed_extensions = {".mp4", ".avi", ".mov", ".mkv"}
-
-    if extension not in allowed_extensions:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Only {', '.join(allowed_extensions)} video files are supported."
-        )
-
-    temp_path = None
-    try:
-        # Lưu file upload vào thư mục test_videos để sau dùng được
-        save_path = os.path.join(VIDEO_DIR, filename)
-        with open(save_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
-
-        # Chạy pipeline
-        result = await run_in_threadpool(
-            analyze_video_file,
-            save_path,
-            filename=filename,
-            max_frames=settings.MAX_FRAMES,
-            pipeline=global_pipeline,
-        )
-        return result
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
-    except Exception as error:
-        raise HTTPException(status_code=500, detail=f"Video processing error: {error}")
-    finally:
-        await file.close()
+    status = "healthy" if (mq_connected and yolo_loaded) else "degraded"
+    
+    return {
+        "status": status,
+        "service": "lane-service",
+        "rabbitmq": "connected" if mq_connected else "disconnected",
+        "yolo_model": "loaded" if yolo_loaded else "failed",
+        "deeplab_weights": "loaded" if deeplab_loaded else "using_opencv_fallback",
+        "stream_source": current_stream_path
+    }
 
 
 def lane_capture_worker():
@@ -255,6 +144,11 @@ def lane_capture_worker():
     frame_counter = 0
     last_overlay = None
     
+    # Initialize UDP socket for streaming to Dashboard
+    import socket
+    udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_dest = (settings.DASHBOARD_UDP_HOST, settings.DASHBOARD_UDP_PORT)
+    
     while True:
         try:
             global current_stream_path
@@ -263,10 +157,14 @@ def lane_capture_worker():
                     cap.release()
                     cap = None
                 last_video = current_stream_path
-                is_http = current_stream_path.startswith("http://") or current_stream_path.startswith("https://")
+                is_http = str(current_stream_path).startswith("http://") or str(current_stream_path).startswith("https://")
                 if not is_http:
-                    cap = cv2.VideoCapture(last_video)
-                    
+                    try:
+                        camera_idx = int(last_video)
+                        cap = cv2.VideoCapture(camera_idx)
+                    except ValueError:
+                        cap = cv2.VideoCapture(last_video)
+                        
             if is_http:
                 try:
                     r = requests.get(current_stream_path, timeout=0.5)
@@ -288,7 +186,11 @@ def lane_capture_worker():
                     continue
                 success, frame = cap.read()
                 if not success:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    try:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    except Exception:
+                        pass
+                    time.sleep(0.1)
                     continue
                     
             # Frame skipping: chạy ADAS pipeline mỗi 2 frame để tăng FPS
@@ -313,9 +215,9 @@ def lane_capture_worker():
                 
             try:
                 if len(jpeg_bytes) < 65000:
-                    udp_sock.sendto(jpeg_bytes, (DASHBOARD_UDP_HOST, DASHBOARD_UDP_PORT))
-            except Exception:
-                pass
+                    udp_sock.sendto(jpeg_bytes, udp_dest)
+            except Exception as udp_exc:
+                print(f"[UDP Stream] Send failed: {udp_exc}")
                 
             # Duy trì tốc độ ~25 FPS
             time.sleep(0.04)
@@ -364,6 +266,11 @@ def stream_video():
             pass
         except Exception:
             pass
+
+    return StreamingResponse(
+        generate_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
 
     return StreamingResponse(
         generate_frames(),
