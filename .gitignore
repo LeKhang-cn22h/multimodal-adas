@@ -25,3 +25,7 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+services/driver-service/highlevel/
+.opencode/
+*.jpg
