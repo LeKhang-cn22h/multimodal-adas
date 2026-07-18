@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>TOC - Quản lý cảnh báo giao thông</title>
+<style>
+  :root{
+    --navy-900:#0d1b3d;
+    --navy-800:#122457;
+    --navy-700:#16306e;
+    --blue-accent:#2f6fed;
+    --orange:#f6b26b;
+    --orange-dark:#f39c3f;
+    --red:#e14b4b;
+    --red-dark:#d63b3b;
+    --green:#3cb878;
+    --map-bg:#eef0ee;
+    --map-road:#ffffff;
+    --map-highway:#f7c948;
+    --map-green:#cfe3c8;
+    --map-water:#bcd7ea;
+    --text-light:#e8edf7;
+    --text-dim:#9fb0d6;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;font-family:"Segoe UI",Arial,sans-serif;background:var(--navy-900);}
+  .app{display:flex;flex-direction:column;height:100vh;overflow:hidden;}
+
+  /* ===== TOP NAV ===== */
+  .topbar{
+    height:52px;flex:0 0 52px;
+    background:var(--navy-900);
+    display:flex;align-items:center;
+    padding:0 16px;
+    border-bottom:1px solid #1c2c5c;
+    color:var(--text-light);
+    font-size:13px;
+  }
+  .brand{display:flex;align-items:center;gap:8px;font-weight:700;letter-spacing:.5px;margin-right:28px;}
+  .brand .logo-circle{
+    width:30px;height:30px;border-radius:50%;
+    border:2px solid #6f86c9;
+    display:flex;align-items:center;justify-content:center;
+    font-size:10px;color:#8fa3d9;
+  }
+  .navmenu{display:flex;align-items:center;gap:22px;flex:1;}
+  .navmenu a{
+    color:var(--text-dim);text-decoration:none;
+    display:flex;align-items:center;gap:6px;
+    padding:6px 2px;position:relative;
+  }
+  .navmenu a.active{color:#fff;}
+  .navmenu a.active::after{
+    content:"";position:absolute;left:0;right:0;bottom:-16px;height:2px;background:var(--blue-accent);
+  }
+  .navmenu .ic{width:14px;height:14px;display:inline-block;opacity:.85;}
+  .topbar-right{display:flex;align-items:center;gap:16px;margin-left:auto;color:var(--text-light);}
+  .bell{position:relative;font-size:16px;}
+  .bell .badge{
+    position:absolute;top:-8px;right:-10px;background:var(--red);
+    color:#fff;font-size:9px;border-radius:8px;padding:1px 5px;font-weight:700;
+  }
+  .user{display:flex;align-items:center;gap:8px;}
+  .user .avatar{
+    width:28px;height:28px;border-radius:50%;background:#3a4a80;
+    display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;
+    background-image:linear-gradient(135deg,#5a71b8,#2c3e70);
+  }
+  .user .name{font-size:12.5px;}
+  .user .caret{font-size:9px;color:var(--text-dim);}
+
+  /* ===== BODY LAYOUT ===== */
+  .body{flex:1;display:flex;overflow:hidden;min-height:0;}
+
+  /* ===== LEFT SIDEBAR ===== */
+  .sidebar-left{
+    width:230px;flex:0 0 230px;
+    background:var(--navy-800);
+    color:var(--text-light);
+    overflow-y:auto;
+    border-right:1px solid #1c2c5c;
+    padding-bottom:20px;
+  }
+  .panel-section{border-bottom:1px solid #1c2c5c;}
+  .panel-header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:12px 14px;font-size:12.5px;font-weight:600;
+    letter-spacing:.3px;color:#cdd8f5;cursor:pointer;
+  }
+  .panel-header .chev{font-size:10px;color:var(--text-dim);}
+  .panel-body{padding:0 14px 14px;}
+  .field-label{font-size:11px;color:var(--text-dim);margin:8px 0 4px;}
+  .field-input, .field-select{
+    width:100%;background:#0e1c46;border:1px solid #223268;
+    border-radius:4px;color:#dfe6f7;font-size:12px;
+    padding:7px 8px;outline:none;
+  }
+  .btn-search{
+    width:100%;margin-top:10px;background:var(--blue-accent);
+    border:none;color:#fff;font-size:12.5px;font-weight:600;
+    padding:8px 0;border-radius:4px;cursor:pointer;
+  }
+  .btn-search:hover{background:#2a5fd0;}
+
+  .resource-list{padding:4px 0 6px;}
+  .resource-item{
+    display:flex;align-items:center;gap:9px;
+    padding:8px 14px;font-size:12px;color:#dbe3f7;
+  }
+  .dot{width:9px;height:9px;border-radius:50%;flex:0 0 9px;}
+  .dot.green{background:#3cb878;}
+  .dot.red{background:#e14b4b;}
+  .dot.orange{background:#f39c3f;}
+  .dot.blue{background:#4a7cf0;}
+  .dot.purple{background:#8b6de0;}
+  .dot.teal{background:#38b9c9;}
+  .resource-item .rname{flex:1;}
+  .toggle{
+    width:30px;height:16px;border-radius:9px;background:#2a5fd0;
+    position:relative;flex:0 0 30px;cursor:pointer;
+  }
+  .toggle::after{
+    content:"";position:absolute;top:2px;right:2px;
+    width:12px;height:12px;border-radius:50%;background:#fff;
+  }
+  .toggle.off{background:#31406e;}
+  .toggle.off::after{right:auto;left:2px;}
+
+  /* ===== MAP AREA ===== */
+  .map-wrap{flex:1;position:relative;min-width:0;background:var(--map-bg);overflow:hidden;}
+  .map-bg{position:absolute;inset:0;background:var(--map-bg);}
+  .map-bg svg{width:100%;height:100%;display:block;}
+
+  .side-collapse{
+    position:absolute;top:50%;transform:translateY(-50%);
+    width:16px;height:44px;background:#0d1b3d;
+    display:flex;align-items:center;justify-content:center;
+    color:#9fb0d6;font-size:10px;cursor:pointer;z-index:5;
+  }
+  .side-collapse.left{left:0;border-radius:0 4px 4px 0;}
+  .side-collapse.right{right:230px;border-radius:4px 0 0 4px;}
+
+  .city-label{
+    position:absolute;left:16px;bottom:14px;color:#c0392b;
+    font-size:22px;font-weight:700;font-family:Georgia,serif;opacity:.85;
+  }
+
+  .marker{
+    position:absolute;width:26px;height:26px;border-radius:50% 50% 50% 0;
+    transform:translate(-50%,-100%) rotate(-45deg);
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 1px 3px rgba(0,0,0,.35);
+    color:#fff;font-size:11px;
+  }
+  .marker span{transform:rotate(45deg);}
+  .marker.red{background:#c0392b;}
+  .marker.blue{background:#2f6fed;}
+  .marker.green-solid{background:#2f9e57;}
+  .marker.round{
+    border-radius:50%;transform:translate(-50%,-50%);
+    width:22px;height:22px;
+  }
+  .marker.round span{transform:none;}
+
+  .popup{
+    position:absolute;width:210px;background:var(--orange);
+    border-radius:6px;padding:10px 12px;font-size:12px;color:#3a2a10;
+    box-shadow:0 6px 16px rgba(0,0,0,.25);z-index:4;
+  }
+  .popup .pclose{
+    position:absolute;top:6px;right:8px;font-size:13px;cursor:pointer;color:#6b4d1f;
+  }
+  .popup .ptitle{font-weight:700;margin-bottom:8px;font-size:12.5px;}
+  .popup .prow{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+  .popup .plabel{color:#5c4520;}
+  .popup .pstatus{
+    background:var(--red);color:#fff;font-size:10.5px;font-weight:700;
+    padding:3px 8px;border-radius:3px;
+  }
+  .popup .pactions{display:flex;justify-content:flex-end;gap:8px;margin-top:2px;}
+  .popup .pactions .icb{
+    width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.15);
+    display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;
+  }
+
+  .route-line{position:absolute;pointer-events:none;}
+  .xmark{
+    position:absolute;color:#e14b4b;font-size:34px;font-weight:900;
+    transform:translate(-50%,-50%);text-shadow:0 0 2px #fff;
+  }
+
+  /* ===== RIGHT SIDEBAR ===== */
+  .sidebar-right{
+    width:290px;flex:0 0 290px;background:var(--navy-800);color:var(--text-light);
+    border-left:1px solid #1c2c5c;overflow-y:auto;
+  }
+  .alert-title-row{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:12px 14px;font-size:12.5px;font-weight:700;color:#dfe6f7;
+    border-bottom:1px solid #1c2c5c;
+  }
+  .alert-sub{padding:10px 14px 4px;font-size:12px;font-weight:600;color:#f0c674;}
+  .kv{padding:0 14px;}
+  .kv-row{display:flex;justify-content:space-between;align-items:flex-start;padding:6px 0;font-size:12px;border-bottom:1px dashed #22315f;gap:10px;}
+  .kv-row .k{color:var(--text-dim);flex:0 0 80px;}
+  .kv-row .v{color:#e6ecf9;text-align:right;flex:1;}
+  .badge{display:inline-block;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:3px;color:#fff;}
+  .badge.urgent{background:var(--red);}
+  .badge.pending{background:var(--orange-dark);}
+  .badge.progress{background:var(--blue-accent);}
+  .link{color:#5b9dff;font-size:11.5px;cursor:pointer;}
+
+  .media-row{display:flex;gap:6px;padding:10px 14px;}
+  .media-thumb{
+    flex:1;height:56px;border-radius:4px;background:#0e1c46;
+    background-size:cover;background-position:center;position:relative;
+    display:flex;align-items:flex-end;justify-content:flex-end;
+  }
+  .media-thumb.video::after{
+    content:"▶";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-size:14px;background:rgba(0,0,0,.25);border-radius:4px;
+  }
+  .media-nav{display:flex;align-items:center;justify-content:space-between;padding:0 14px 10px;font-size:11px;color:var(--text-dim);}
+
+  .dept-header{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:10px 14px;font-size:12px;font-weight:700;color:#dfe6f7;
+    border-top:1px solid #1c2c5c;border-bottom:1px solid #1c2c5c;
+  }
+  .dept-item{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:9px 14px;font-size:12px;border-bottom:1px solid #1c2c5c;
+  }
+  .dept-item .dname{color:#e6ecf9;}
+  .see-more{text-align:center;font-size:11px;color:var(--text-dim);padding:8px 0;}
+
+  .scope-row{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:12px 14px;font-size:12px;color:#dfe6f7;
+  }
+
+  ::-webkit-scrollbar{width:7px;height:7px;}
+  ::-webkit-scrollbar-thumb{background:#2a3a6c;border-radius:4px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===== TOP NAV ===== -->
+  <div class="topbar">
+    <div class="brand">
+      <span class="logo-circle">TOC</span>
+      <span>TOC</span>
+    </div>
+    <div class="navmenu">
+      <a href="#" class="active">🏠 Trang chủ</a>
+      <a href="#">⚠ Cảnh báo</a>
+      <a href="#">👁 Giám sát</a>
+      <a href="#">🧩 Mở rộng</a>
+      <a href="#">👥 Quản lý người dùng</a>
+      <a href="#">⚙ Quản lý quy trình</a>
+      <a href="#">📁 Danh mục</a>
+    </div>
+    <div class="topbar-right">
+      <div class="bell">🔔<span class="badge">12</span></div>
+      <div class="user">
+        <div class="avatar">TM</div>
+        <span class="name">Trần Thị Ngọc Mai</span>
+        <span class="caret">▾</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== BODY ===== -->
+  <div class="body">
+
+    <!-- LEFT SIDEBAR -->
+    <div class="sidebar-left">
+      <div class="panel-section">
+        <div class="panel-header"><span>LỚP DỮ LIỆU</span><span class="chev">▾</span></div>
+      </div>
+
+      <div class="panel-section">
+        <div class="panel-header"><span>Cảnh báo</span><span class="chev">▾</span></div>
+        <div class="panel-body">
+          <div class="field-label">Từ khoá</div>
+          <input class="field-input" placeholder="">
+          <div class="field-label">Trạng thái</div>
+          <select class="field-select"><option>-- Tất cả --</option></select>
+          <button class="btn-search">Tìm kiếm</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="panel-header"><span>Tài nguyên</span><span class="chev">▾</span></div>
+        <div class="panel-body">
+          <div class="field-label">Tên</div>
+          <input class="field-input" placeholder="">
+          <button class="btn-search">Tìm kiếm</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="panel-header"><span>Loại tài nguyên</span><span class="chev">▾</span></div>
+        <div class="resource-list">
+          <div class="resource-item"><span class="dot green"></span><span class="rname">Camera</span><div class="toggle"></div></div>
+          <div class="resource-item"><span class="dot red"></span><span class="rname">Bệnh viện</span><div class="toggle"></div></div>
+          <div class="resource-item"><span class="dot orange"></span><span class="rname">Phòng khám</span><div class="toggle"></div></div>
+          <div class="resource-item"><span class="dot blue"></span><span class="rname">Trung tâm Y tế</span><div class="toggle"></div></div>
+          <div class="resource-item"><span class="dot purple"></span><span class="rname">Cơ quan hành chính</span><div class="toggle"></div></div>
+          <div class="resource-item"><span class="dot red"></span><span class="rname">Họng cứu hoả</span><div class="toggle"></div></div>
+          <div class="resource-item"><span class="dot teal"></span><span class="rname">Đồn công an</span><div class="toggle"></div></div>
+          <div class="resource-item"><span class="dot red"></span><span class="rname">Cảnh sát PCCC</span><div class="toggle"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAP AREA -->
+    <div class="map-wrap" id="mapWrap">
+      <div class="map-bg" id="mapBg"></div>
+
+      <div class="side-collapse left">‹</div>
+      <div class="city-label">Hà Nội</div>
+
+      <!-- popups -->
+      <div class="popup" style="top:120px;left:330px;">
+        <span class="pclose">✕</span>
+        <div class="ptitle">Ùn tắc giao thông</div>
+        <div class="prow"><span class="plabel">Tuyến đường</span><span>Vòng xuyến Đức Giang</span></div>
+        <div class="prow"><span class="plabel">Trạng thái</span><span class="pstatus">Không thể di chuyển</span></div>
+        <div class="pactions"><span class="icb">📞</span><span class="icb">🎥</span></div>
+      </div>
+
+      <div class="popup" style="top:295px;left:150px;">
+        <span class="pclose">✕</span>
+        <div class="ptitle">Ùn tắc giao thông</div>
+        <div class="prow"><span class="plabel">Tuyến đường</span><span>Ngã tư Phường Gia Thuỵ</span></div>
+        <div class="prow"><span class="plabel">Trạng thái</span><span class="pstatus">Không thể di chuyển</span></div>
+        <div class="pactions"><span class="icb">📞</span><span class="icb">🎥</span></div>
+      </div>
+
+      <div class="popup" style="top:290px;left:590px;">
+        <span class="pclose">✕</span>
+        <div class="ptitle">Ùn tắc giao thông</div>
+        <div class="prow"><span class="plabel">Tuyến đường</span><span>Đường Hội Xá</span></div>
+        <div class="prow"><span class="plabel">Trạng thái</span><span class="pstatus" style="background:var(--orange-dark);">Đang di chuyển</span></div>
+        <div class="pactions"><span class="icb">📞</span><span class="icb">🎥</span></div>
+      </div>
+
+      <!-- markers -->
+      <div class="marker red" style="top:80px;left:240px;"><span>⚠</span></div>
+      <div class="marker round blue" style="top:222px;left:378px;"><span>👤</span></div>
+      <div class="marker round green-solid" style="top:222px;left:445px;"><span>📷</span></div>
+      <div class="marker red" style="top:245px;left:462px;"><span>⚠</span></div>
+      <div class="marker round" style="top:248px;left:498px;background:#8b3fd6;"><span>🚓</span></div>
+      <div class="marker round green-solid" style="top:203px;left:280px;"><span>3</span></div>
+      <div class="marker round" style="top:298px;left:330px;background:#c0392b;"><span>🎙</span></div>
+      <div class="marker round blue" style="top:355px;left:360px;"><span>👤</span></div>
+      <div class="marker round" style="top:308px;left:490px;background:#c0392b;"><span>🎙</span></div>
+
+      <!-- red X marks -->
+      <div class="xmark" style="top:355px;left:335px;">✕</div>
+
+      <!-- red route lines (SVG overlay) -->
+      <svg class="route-line" width="100%" height="100%" style="top:0;left:0;position:absolute;">
+        <polyline points="410,215 430,180 440,140 405,95" stroke="#e14b4b" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <polyline points="335,270 320,300 300,330 340,355" stroke="#e14b4b" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <polyline points="565,300 585,340 620,380 605,430" stroke="#e14b4b" stroke-width="4" fill="none" stroke-linecap="round"/>
+      </svg>
+
+      <div class="side-collapse right">›</div>
+    </div>
+
+    <!-- RIGHT SIDEBAR -->
+    <div class="sidebar-right">
+      <div class="alert-title-row"><span>THÔNG TIN CẢNH BÁO</span><span>▾</span></div>
+      <div class="alert-sub">Tai nạn giao thông nghiêm trọng</div>
+
+      <div class="kv">
+        <div class="kv-row"><span class="k">Lĩnh vực</span><span class="v">An toàn giao thông</span></div>
+        <div class="kv-row"><span class="k">Nguồn</span><span class="v">Hệ thống VOV</span></div>
+        <div class="kv-row"><span class="k">Mức độ</span><span class="v"><span class="badge urgent">Khẩn cấp</span></span></div>
+        <div class="kv-row"><span class="k">Trạng thái</span><span class="v"><span class="badge pending">Chờ xử lý</span></span></div>
+        <div class="kv-row"><span class="k">Địa chỉ</span><span class="v">2 Đường Trần Danh Tuyên, Quận Long Biên, TP Hà Nội</span></div>
+        <div class="kv-row"><span class="k">Nội dung</span><span class="v">Phát hiện tai nạn giao thông tại địa điểm 2 Trần Danh… <span class="link">Xem chi tiết</span></span></div>
+      </div>
+
+      <div class="media-row">
+        <div class="media-thumb" style="background:linear-gradient(135deg,#2b3a63,#101c3e);"></div>
+        <div class="media-thumb video" style="background:linear-gradient(135deg,#2b3a63,#101c3e);"></div>
+        <div class="media-thumb" style="background:linear-gradient(135deg,#2b3a63,#101c3e);"></div>
+      </div>
+      <div class="media-nav"><span>‹</span><span>1 / 4</span><span>›</span></div>
+
+      <div class="dept-header"><span>Danh sách phòng ban xử lý</span><span>▾</span></div>
+      <div class="dept-item"><span class="dname">• Cấp cứu bệnh viện đa…</span><span class="badge progress">Đang xử lý</span></div>
+      <div class="dept-item"><span class="dname">• Cảnh sát Giao thông…</span><span class="badge pending">Chờ xử lý</span></div>
+      <div class="see-more">Xem chi tiết</div>
+
+      <div class="scope-row"><span>Nguồn lực phạm vi: 500m</span><div class="toggle"></div></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// Build a lightweight stylized "map" background with SVG so it resembles
+// a street map (roads, a highway, a river, green blocks) without external tiles.
+(function(){
+  const mapBg = document.getElementById('mapBg');
+  const w = 1200, h = 800;
+  let svg = `<svg viewBox="0 0 ${w} ${h}" width="100%" height="100%" preserveAspectRatio="none">`;
+  svg += `<rect width="${w}" height="${h}" fill="#eef0ee"/>`;
+
+  // green park blocks
+  const greens = [[40,40,140,90],[900,60,220,140],[60,520,180,160],[850,520,260,180],[520,600,160,120]];
+  greens.forEach(g=>{ svg += `<rect x="${g[0]}" y="${g[1]}" width="${g[2]}" height="${g[3]}" fill="#cfe3c8"/>`; });
+
+  // water (river) - diagonal band
+  svg += `<path d="M0,60 C200,120 260,260 500,300 C700,330 780,420 1000,480 C1100,510 1150,560 1200,620 L1200,700 C1100,650 1050,600 950,560 C750,480 650,420 500,380 C300,330 200,260 0,180 Z" fill="#bcd7ea" opacity="0.9"/>`;
+
+  // minor roads grid
+  for(let i=0;i<26;i++){
+    const y = i*32 + (i%2)*6;
+    svg += `<line x1="0" y1="${y}" x2="${w}" y2="${y+ (i%3)*4}" stroke="#ffffff" stroke-width="2"/>`;
+  }
+  for(let i=0;i<36;i++){
+    const x = i*34 + (i%2)*5;
+    svg += `<line x1="${x}" y1="0" x2="${x+(i%4)*6}" y2="${h}" stroke="#ffffff" stroke-width="2"/>`;
+  }
+
+  // main highways (yellow)
+  svg += `<path d="M0,180 C220,150 340,120 520,140 C700,160 850,110 1200,90" stroke="#f7c948" stroke-width="7" fill="none"/>`;
+  svg += `<path d="M60,0 C120,180 180,320 260,460 C320,570 380,650 420,800" stroke="#f7c948" stroke-width="7" fill="none"/>`;
+  svg += `<path d="M1200,300 C1000,320 860,340 700,380 C560,420 440,460 320,560" stroke="#f7c948" stroke-width="6" fill="none"/>`;
+
+  // secondary roads (light orange)
+  svg += `<path d="M0,420 C260,400 420,430 620,420 C860,410 1000,440 1200,460" stroke="#f2d199" stroke-width="4" fill="none"/>`;
+
+  svg += `</svg>`;
+  mapBg.innerHTML = svg;
+})();
+
+// toggle switches
+document.querySelectorAll('.toggle').forEach(t=>{
+  t.addEventListener('click', ()=> t.classList.toggle('off'));
+});
+// popup close
+document.querySelectorAll('.pclose').forEach(c=>{
+  c.addEventListener('click', (e)=> e.target.closest('.popup').style.display='none');
+});
+// panel collapse
+document.querySelectorAll('.panel-header, .alert-title-row, .dept-header').forEach(h=>{
+  h.addEventListener('click', ()=>{
+    const body = h.nextElementSibling;
+    if(body && (body.classList.contains('panel-body') || body.classList.contains('resource-list'))){
+      body.style.display = body.style.display === 'none' ? '' : 'none';
+    }
+  });
+});
+</script>
+</body>
+</html>

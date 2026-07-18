@@ -33,8 +33,24 @@ if [ ! -f .env ]; then
     echo ""
 fi
 
+# ── Copy model files từ root nếu chưa có ──────────────────────────────
+MODEL_DIR="services/driver-service/app/models"
+mkdir -p "$MODEL_DIR"
+
+for m in eye_state_model.pt mouth_state_model.pt best.pt; do
+    if [ -f "$m" ] && [ ! -f "$MODEL_DIR/$m" ]; then
+        echo "📋 Copying $m to $MODEL_DIR..."
+        cp "$m" "$MODEL_DIR/"
+    fi
+done
+
+if [ -f "services/driver-service/yolov8n-face.pt" ] && [ ! -f "$MODEL_DIR/yolov8n-face.pt" ]; then
+    echo "📋 Copying yolov8n-face.pt to $MODEL_DIR..."
+    cp "services/driver-service/yolov8n-face.pt" "$MODEL_DIR/"
+fi
+
 # ── Download face_landmarker.task nếu chưa có ─────────────────────────
-TASK_FILE="services/driver-service/face_landmarker.task"
+TASK_FILE="$MODEL_DIR/face_landmarker.task"
 if [ ! -f "$TASK_FILE" ]; then
     echo "📥 Đang download face_landmarker.task từ Google..."
     curl -L "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" \

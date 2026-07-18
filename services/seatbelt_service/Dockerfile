@@ -7,10 +7,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 ENV PORT=8007
+ENV CAMERA_SERVICE_URL=http://camera-service:8005
 ENV MODEL_PATH=best.pt
 ENV CONFIDENCE_THRESHOLD=0.3
 ENV WARNING_FRAMES=10
 ENV POLL_INTERVAL=3.0
 ENV LOG_LEVEL=INFO
 EXPOSE 8007
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8007"]
+CMD ["python", "main.py"]

@@ -1,33 +1,44 @@
 # Python
 __pycache__/
 *.pyc
+*.pyo
 
 # Virtual Env
 .venv/
 venv/
+<<<<<<< HEAD
 /services/driver-service/dataset/
 /services/driver-service/training/output/
 # VSCode
-.vscode/
+=======
 
-# Models
+# VSCode / IDE
+>>>>>>> origin/lane-vehicle_service
+.vscode/
+.idea/
+
+# ML Models (large binary files)
 *.task
 *.onnx
 *.pt
 *.pth
+*.weights
+*.h5
 
 # Logs
 logs/
 *.log
 
-# Docker
+# Docker / Env
 .env
 
 # OS
 .DS_Store
 Thumbs.db
 
-services/driver-service/highlevel/
-.opencode/
-*.jpg
 ******venv
+# ── Dataset (KHÔNG push lên Git) ───────────────────────────────────────────
+# Dataset BDD100K (rất lớn, tải riêng từ https://bdd-data.berkeley.edu/)
+services/lane-service/data/solesensei-bdd100k/
+*.mp4
+uploads/

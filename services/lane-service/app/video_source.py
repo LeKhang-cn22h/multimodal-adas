@@ -1,4 +1,7 @@
 import cv2
+import numpy as np
+import requests
+
 
 
 class VideoSource:
@@ -42,3 +45,40 @@ class VideoSource:
 
     def close(self) -> None:
         self.capture.release()
+
+
+class HttpCameraSource:
+    def __init__(self, url: str):
+        self.url = url
+
+    def get_info(self) -> dict:
+        # Return default metadata for live stream
+        return {
+            "fps": 30.0,
+            "total_frames": 0,
+            "width": 640,
+            "height": 480,
+            "duration_seconds": 0.0,
+        }
+
+    def read_frames(self, max_frames: int = 999999):
+        frames_read = 0
+        while frames_read < max_frames:
+            try:
+                response = requests.get(self.url, timeout=1.0)
+                if response.status_code == 200:
+                    nparr = np.frombuffer(response.content, np.uint8)
+                    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    if frame is not None:
+                        yield frame
+                        frames_read += 1
+                else:
+                    break
+            except Exception:
+                # Wait briefly if connection is lost
+                import time
+                time.sleep(0.1)
+                continue
+
+    def close(self) -> None:
+        pass

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MULTIMODAL-ADAS Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+  <div class="app">
+
+    <!-- ===== TOP NAV ===== -->
+    <div class="topbar">
+      <div class="brand">
+        <span class="logo-circle">TOC</span>
+        <span>ADAS</span>
+      </div>
+      <div class="navmenu">
+        <a href="#" class="active">Trang chu</a>
+      </div>
+      <div class="topbar-right">
+        <div id="srv-status" class="srv-badge srv-checking">Checking...</div>
+        <div class="user">
+          <div class="avatar">AD</div>
+          <span class="name">Admin ADAS</span>
+          <span class="caret">&#9660;</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== BODY ===== -->
+    <div class="body">
+
+      <!-- LEFT SIDEBAR -->
+      <div class="sidebar-left">
+
+        <div class="panel-section">
+          <div class="panel-header" onclick="togglePanel(this)">
+            <span>NGUON CAMERA</span><span class="chev">&#9660;</span>
+          </div>
+          <div class="panel-body">
+            <div class="field-label">Video dang phat</div>
+            <select id="video-select" class="field-select" onchange="switchVideo(this.value)"></select>
+            <div id="cam-status" class="cam-status-text">Dang tai danh sach...</div>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-header" onclick="togglePanel(this)">
+            <span>TAI LEN VIDEO</span><span class="chev">&#9660;</span>
+          </div>
+          <div class="panel-body">
+            <div class="upload-drop-area-small" id="drop-area" onclick="document.getElementById('file-input').click()"
+              ondragover="event.preventDefault()" ondrop="handleDrop(event)">
+              <div class="upload-icon-small">&#8679;</div>
+              <div class="upload-hint-small">Nhan de chon hoac keo tha video</div>
+              <div id="file-name" class="upload-filename"></div>
+            </div>
+            <input id="file-input" type="file" accept=".mp4,.avi,.mov,.mkv,.webm" style="display:none"
+              onchange="onFileSelected(this)">
+            <button id="analyze-btn" onclick="analyzeVideo()" disabled>
+              Phan tich &amp; Phat Live
+            </button>
+            <div id="progress-bar-wrap" class="progress-wrap hidden">
+              <div id="progress-bar" class="progress-bar"></div>
+            </div>
+            <div id="analyze-status" class="analyze-status"></div>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-header" onclick="togglePanel(this)">
+            <span>BO LOC SERVICES (ADAS)</span><span class="chev">&#9660;</span>
+          </div>
+          <div class="resource-list">
+            <div class="resource-item clickable" onclick="onToggleClick('lane', 'toggle-lane')">
+              <span class="dot blue"></span>
+              <span class="rname">Lane Detection Service</span>
+              <div class="toggle" id="toggle-lane"></div>
+            </div>
+            <div class="resource-item clickable" onclick="onToggleClick('deeplab', 'toggle-deeplab')">
+              <span class="dot teal"></span>
+              <span class="rname">&nbsp;&nbsp;└─ DeepLab Segmenter</span>
+              <div class="toggle" id="toggle-deeplab"></div>
+            </div>
+            <div class="resource-item clickable" onclick="onToggleClick('vehicle', 'toggle-vehicle')">
+              <span class="dot orange"></span>
+              <span class="rname">Vehicle Distance Service</span>
+              <div class="toggle" id="toggle-vehicle"></div>
+            </div>
+            <div class="resource-item clickable" onclick="onToggleClick('driver', 'toggle-driver')">
+              <span class="dot red"></span>
+              <span class="rname">Driver Drowsiness Service</span>
+              <div class="toggle" id="toggle-driver"></div>
+            </div>
+            <div class="resource-item clickable" onclick="onToggleClick('seatbelt', 'toggle-seatbelt')">
+              <span class="dot green"></span>
+              <span class="rname">Seatbelt Detection Service</span>
+              <div class="toggle" id="toggle-seatbelt"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-header" onclick="togglePanel(this)">
+            <span>CANH BAO</span><span class="chev">&#9660;</span>
+          </div>
+          <div class="panel-body">
+            <div id="alert-list">
+              <div class="alert-item neutral">Chua co canh bao</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- CENTER: STREAM + UPLOAD -->
+      <div class="map-wrap">
+
+        <div class="stream-header">
+          <span>MAN HINH GIAM SAT ADAS</span>
+          <span id="live-dot" class="live-dot">&#9679; LIVE</span>
+        </div>
+        <div class="stream-frame">
+          <img id="stream-img" src="/stream" alt="ADAS Live Stream">
+        </div>
+
+      </div>
+
+      <!-- RIGHT SIDEBAR -->
+      <div class="sidebar-right">
+
+        <div class="alert-title-row">
+          <span>THONG SO ADAS</span>
+          <span style="color:#3cb878;font-size:11px;">&#9679; REALTIME</span>
+        </div>
+
+        <!-- KV rows -->
+        <div class="kv" id="adas-panel">
+          <div class="kv-row">
+            <span class="k">Trang thai lai</span>
+            <span class="v" id="kv-direction">
+              <span class="badge neutral">Chua nhan dien</span>
+            </span>
+          </div>
+          <div class="kv-row">
+            <span class="k">Do lech lan</span>
+            <span class="v" id="kv-offset">
+              <span class="badge neutral">--</span>
+            </span>
+          </div>
+          <div class="kv-row">
+            <span class="k">Vat can phia truoc</span>
+            <span class="v" id="kv-targets">
+              <span class="badge neutral">--</span>
+            </span>
+          </div>
+          <div class="kv-row">
+            <span class="k">So frames</span>
+            <span class="v" id="kv-frames">--</span>
+          </div>
+          <div class="kv-row">
+            <span class="k">Do phan giai</span>
+            <span class="v" id="kv-resolution">--</span>
+          </div>
+          <div class="kv-row">
+            <span class="k">FPS video</span>
+            <span class="v" id="kv-fps">--</span>
+          </div>
+        </div>
+
+        <!-- JSON Result panel -->
+        <div class="dept-header" onclick="toggleJsonPanel()">
+          <span>KET QUA JSON</span>
+          <span id="json-chev">&#9654;</span>
+        </div>
+        <div id="json-panel" class="json-panel hidden">
+          <pre id="json-output"></pre>
+        </div>
+
+        <!-- Vehicle Distance List panel (gRPC) -->
+        <div class="dept-header">
+          <span>KHOANG CACH PHUONG TIEN (gRPC)</span>
+        </div>
+        <div id="vehicle-list-panel" class="vehicle-list-panel">
+          <div class="see-more">Chua phat hien phuong tien</div>
+        </div>
+        <div class="dept-header">
+          <span>LICH SU PHAN TICH</span>
+        </div>
+        <div id="history-list">
+          <div class="see-more">Chua co lich su</div>
+        </div>
+
+      </div>
+
+    </div><!-- /body -->
+  </div><!-- /app -->
+
+  <script src="/static/app.js"></script>
+</body>
+
+</html>

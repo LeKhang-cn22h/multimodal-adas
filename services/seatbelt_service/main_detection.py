@@ -1,4 +1,6 @@
 """
+Test YOLO Detection model (seatbelt_detection5/weights/best.pt).
+Classes: drinking, eyeglass, hands off, hands on, mask, seatbelt
 Seatbelt Detection - YOLOv8m (seatbelt_yolov8m)
 
 Classes: cell phone, drinking, eyeglass, hands off, hands on, mask, seatbelt

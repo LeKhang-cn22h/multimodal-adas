@@ -23,15 +23,13 @@ RUN mkdir -p app/models \
     && curl -L "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" \
     -o app/models/face_landmarker.task
 
-COPY app/ app/
+COPY app/ .
 
-ENV PYTHONUNBUFFERED=1
 ENV EAR_THRESHOLD=0.22
 ENV DROWSY_FRAMES=60
 ENV SLIDING_WINDOW_SIZE=90
 ENV MODEL_PATH=app/models/face_landmarker.task
 ENV PORT=8001
-ENV LOG_LEVEL=INFO
 
 EXPOSE 8001
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["python", "main.py"]

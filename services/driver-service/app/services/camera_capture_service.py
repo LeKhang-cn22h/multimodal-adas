@@ -10,6 +10,8 @@ from __future__ import annotations
 import queue
 import threading
 import time
+import socket
+import os
 
 import cv2
 import numpy as np
@@ -25,7 +27,7 @@ class CameraCaptureService:
     def __init__(
         self,
         frame_queue: queue.Queue,
-        camera_index: int = 0,
+        camera_index: int | str = 1,
         width: int = 640,
         height: int = 480,
         jpeg_quality: int = 85,
@@ -48,6 +50,13 @@ class CameraCaptureService:
         self._fps_t0 = 0.0
         self._fps_counter = 0
 
+        self._current_source: int | str = camera_index
+
+        # UDP socket for dashboard streaming
+        self._udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._dashboard_host = os.getenv("DASHBOARD_UDP_HOST", "127.0.0.1")
+        self._dashboard_port = int(os.getenv("DASHBOARD_UDP_PORT", 1235))
+
     # ------------------------------------------------------------------
     # Public
     # ------------------------------------------------------------------
@@ -69,13 +78,25 @@ class CameraCaptureService:
     def dropped_frames(self) -> int:
         return self._dropped_count
 
-    def start(self) -> None:
+    def start(self, source: int | str | None = None) -> None:
         if self.is_running:
-            return
-        logger.info("Opening webcam (index=%d)", self._camera_index)
-        self._cap = cv2.VideoCapture(self._camera_index)
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+            self.stop()
+
+        if source is not None:
+            self._current_source = source
+        else:
+            self._current_source = self._camera_index
+
+        if isinstance(self._current_source, str) and self._current_source.isdigit():
+            self._current_source = int(self._current_source)
+
+        logger.info("Opening video source: %s", self._current_source)
+        self._cap = cv2.VideoCapture(self._current_source)
+        
+        if isinstance(self._current_source, int):
+            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
+            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+
         self._fps_t0 = time.time()
         self._stop_event.clear()
         self._thread = threading.Thread(
@@ -104,6 +125,10 @@ class CameraCaptureService:
                 break
             ret, frame = self._cap.read()
             if not ret:
+                if not isinstance(self._current_source, int):
+                    # Loop video if it is a file
+                    self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    continue
                 time.sleep(0.01)
                 continue
 
@@ -113,6 +138,13 @@ class CameraCaptureService:
                 [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality],
             )
             jpeg_bytes = jpeg.tobytes()
+
+            # Stream via UDP to Dashboard if frame size is small enough
+            try:
+                if len(jpeg_bytes) < 65000:
+                    self._udp_sock.sendto(jpeg_bytes, (self._dashboard_host, self._dashboard_port))
+            except Exception:
+                pass
 
             # Store latest
             with self._lock:
