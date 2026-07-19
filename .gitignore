@@ -5,8 +5,10 @@ __pycache__/
 # Virtual Env
 .venv/
 venv/
+/services/driver-service/dataset/
+/services/driver-service/training/output/
 
-# VSCode
+# VSCode / IDE
 .vscode/
 
 # Models

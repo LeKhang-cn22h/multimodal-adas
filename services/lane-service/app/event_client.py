@@ -29,9 +29,8 @@ class EventClient:
         try:
             r = self.client.post(self.target_url, json=payload)
             return r.status_code == 200
-        except Exception as e:
-            # Log lỗi nhẹ nhàng, bỏ qua nếu aggregator-service chưa khởi động
-            print(f"[EventClient] Gửi cảnh báo thất bại (Aggregator offline): {e}")
+        except Exception:
+            # Bỏ qua nếu aggregator-service chưa khởi động để tránh làm rối log
             return False
 
     def close(self):
