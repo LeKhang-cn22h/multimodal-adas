@@ -302,14 +302,37 @@ class LanePipeline:
             overlay[fused_drivable == 255] = [0, 255, 0]
             cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
 
-            # Vẽ vạch kẻ đường biên trái (màu xanh dương) và biên phải (màu đỏ)
-            if self.config.get("lane_detection", True):
-                left_line = lane_info.get("left_line")
-                right_line = lane_info.get("right_line")
-                if left_line:
-                    cv2.line(frame, left_line[0], left_line[1], (255, 0, 0), 3, cv2.LINE_AA)
-                if right_line:
-                    cv2.line(frame, right_line[0], right_line[1], (0, 0, 255), 3, cv2.LINE_AA)
+            # Vẽ vạch kẻ đường biên trái (màu xanh dương) và biên phải (màu đỏ) dưới dạng đường cong mượt mà
+            if self.config.get("lane_detection", True) and lane_info.get("lane_detected", False):
+                left_fitx = lane_info.get("left_fitx")
+                right_fitx = lane_info.get("right_fitx")
+                ploty = lane_info.get("ploty")
+                
+                if left_fitx is not None and right_fitx is not None and ploty is not None:
+                    # Lấy vùng vẽ khớp chính xác với ROI (từ 62% chiều cao ảnh xuống)
+                    y_start = int(height * 0.62)
+                    mask_y = ploty >= y_start
+                    ploty_clip = ploty[mask_y]
+                    left_clip = left_fitx[mask_y]
+                    right_clip = right_fitx[mask_y]
+                    
+                    pts_l = []
+                    pts_r = []
+                    # Duyệt qua các điểm để warp ngược về ảnh gốc
+                    for y_val, lx, rx in zip(ploty_clip, left_clip, right_clip):
+                        pt_l = self.geometry._warp_point_inv((int(lx), int(y_val)), (width, height))
+                        pt_r = self.geometry._warp_point_inv((int(rx), int(y_val)), (width, height))
+                        if pt_l:
+                            pts_l.append(pt_l)
+                        if pt_r:
+                            pts_r.append(pt_r)
+                            
+                    if len(pts_l) > 1:
+                        pts_l = np.array(pts_l, dtype=np.int32)
+                        cv2.polylines(frame, [pts_l], False, (255, 0, 0), 3, cv2.LINE_AA) # Blue
+                    if len(pts_r) > 1:
+                        pts_r = np.array(pts_r, dtype=np.int32)
+                        cv2.polylines(frame, [pts_r], False, (0, 0, 255), 3, cv2.LINE_AA) # Red
 
             # Vẽ bounding boxes và khoảng cách của phương tiện từ gRPC
             for obj in grpc_objects:

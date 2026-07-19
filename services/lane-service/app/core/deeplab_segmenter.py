@@ -102,10 +102,10 @@ class DeepLabSegmenter:
 
         # ── Xây dựng ROI (hình thang nhìn về phía trước xe) ─────────────────
         roi_pts = np.array([
-            [int(width * 0.10), height],
-            [int(width * 0.40), int(height * 0.76)],
-            [int(width * 0.60), int(height * 0.76)],
-            [int(width * 0.90), height],
+            [int(width * 0.18), height],
+            [int(width * 0.43), int(height * 0.62)],
+            [int(width * 0.57), int(height * 0.62)],
+            [int(width * 0.82), height],
         ], np.int32)
 
         roi_mask = np.zeros((height, width), dtype=np.uint8)

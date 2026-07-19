@@ -12,9 +12,12 @@ Chỉnh sửa cấu trúc logic trong `services/lane-service/app/core/geometry.p
    - **Tự động đảo ngược nhầm vạch (Auto-Swap)**: Kiểm tra ở đáy ảnh nếu `left_temp_x[-1] > right_temp_x[-1]`, tiến hành đảo ngược hệ số `lf` và `rf` để định hướng đúng vạch trái/phải.
 2. `LaneGeometry.analyze_lane()`:
    - Thêm lớp phòng vệ phụ (Defense in Depth) kiểm tra kết quả `left_fitx` and `right_fitx` sau khi tính toán. Nếu vẫn phát hiện giao cắt, trả về `lane_detected: False` và `left_line: None`, `right_line: None` để bảo vệ hiển thị ở HUD gốc.
+   - Trả thêm `left_fitx`, `right_fitx`, và `ploty` trong từ điển kết quả trả về để hỗ trợ vẽ đường cong mượt.
 3. **Cắt giảm chiều cao ROI (Hạ đường chân trời nhận diện xuống 0.76)**:
    - Trong `geometry.py`: Thay đổi `src_pts` có tọa độ Y trên cùng từ `0.55` thành `0.76`. Đồng thời, chỉnh sửa `y_start = int(h * 0.76)` trong `draw_lane_overlay`.
    - Trong `deeplab_segmenter.py`: Sửa đổi tọa độ đỉnh của `roi_pts` từ `height * 0.52` thành `height * 0.76`. Điều này sẽ cắt bỏ hoàn toàn một nửa vùng quét phía trên, bỏ qua vòm thép cầu.
+4. **Đồng bộ hóa vẽ vạch kẻ đường trong `pipeline.py`**:
+   - Thay thế việc vẽ đường thẳng thô bằng `cv2.line` bằng vẽ đường cong mượt liên tục qua `cv2.polylines` bằng cách dùng hàm `self.geometry._warp_point_inv` chiếu ngược các điểm trên đường đa thức về hệ tọa độ gốc. Điều này đảm bảo vạch kẻ khớp hoàn hảo với biên của Drivable Area.
 
 ## Logic + AI
 - **Thuật toán**:
