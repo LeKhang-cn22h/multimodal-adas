@@ -66,13 +66,23 @@ class HoughLaneDetector:
     # ── Bước 1: Tạo edge map ────────────────────────────────────────────────
     def _make_edge_map(self, frame: np.ndarray) -> np.ndarray:
         """
-        Grayscale → Dilation → Canny.
-        Kỹ thuật từ 3 file tham khảo: làm mờ nhiễu trước khi Canny giúp
-        giảm edge giả, giữ lại viền vạch kẻ sắc nét hơn.
+        Tạo edge map kết hợp Grayscale -> Dilation -> Canny
+        và lọc màu HSV (trắng + vàng) để loại bỏ nhiễu lòng đường (vệt bánh xe, khe nối nhựa).
         """
+        # 1. Tạo mặt nạ màu vàng/trắng HSV (ngưỡng trắng V từ 170 để nhạy hơn trong bóng râm)
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        white_mask = cv2.inRange(hsv, np.array([0, 0, 170]), np.array([180, 50, 255]))
+        yellow_mask = cv2.inRange(hsv, np.array([15, 80, 100]), np.array([35, 255, 255]))
+        hsv_mask = cv2.bitwise_or(white_mask, yellow_mask)
+        dilated_hsv = cv2.dilate(hsv_mask, np.ones((9, 9), np.uint8))
+        
+        # 2. Tạo Canny edges
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         dilated = cv2.dilate(gray, kernel=self._dilation_kernel)
-        return cv2.Canny(dilated, self.canny_low, self.canny_high)
+        canny_mask = cv2.Canny(dilated, self.canny_low, self.canny_high)
+        
+        # 3. Lọc cạnh Canny theo màu sắc vạch kẻ
+        return cv2.bitwise_and(canny_mask, dilated_hsv)
 
     # ── Bước 2: ROI hình thang ───────────────────────────────────────────────
     def _get_roi_vertices(self, h: int, w: int) -> np.ndarray:
