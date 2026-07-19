@@ -17,10 +17,7 @@ from core.risk_analyzer import RiskAnalyzer
 from core.deeplab_segmenter import DeepLabSegmenter
 from core.traffic_sign_detector import TrafficSignDetector
 from core.geometry import LaneGeometry
-from core.hough_lane import HoughLaneDetector
 from core.fusion import DataFusion
-from core.hud import draw_hud
-from event_client import EventClient
 
 # Import RabbitMQ messaging components
 from app.messaging.connection import RabbitMQConnectionManager
@@ -30,10 +27,10 @@ from app.messaging.publisher import ResultPublisher
 class LanePipeline:
     """
     Unified ADAS Pipeline processing on RAM:
-      1. Performs drivable area and lane segmentation (DeepLab + OpenCV Fusion)
+      1. Performs drivable area and lane segmentation (DeepLab)
       2. Executes vehicle detection & ByteTrack tracking (YOLOv11s local)
       3. Performs distance estimation and risk analysis (RiskAnalyzer)
-      4. Calculates ego-lane deviation offset and departure warning (Hough / Sliding Window Dual Mode)
+      4. Calculates ego-lane deviation offset and departure warning
       5. Publishes dual stream alerts (lane and vehicle) to RabbitMQ
     """
 
@@ -47,16 +44,7 @@ class LanePipeline:
         self.traffic_sign_detector = traffic_sign_detector or TrafficSignDetector()
         self.deeplab = DeepLabSegmenter()
         self.geometry = LaneGeometry()
-        self.hough = HoughLaneDetector(
-            canny_low=60,
-            canny_high=200,
-            hough_threshold=40,
-            min_line_length=10,
-            max_line_gap=5,
-            roi_top_ratio=0.67,
-        )
         self.fusion = DataFusion()
-        self.event_client = EventClient()
         
         # Dynamic filter toggles
         self.config = {
@@ -112,6 +100,7 @@ class LanePipeline:
                 print(f"[RabbitMQ Client] Connection failed: {exc}")
                 self._publisher = None
 
+        import threading
         threading.Thread(target=init_rabbitmq, daemon=True).start()
 
     @property
@@ -130,24 +119,7 @@ class LanePipeline:
     def process_frame(self, frame, visualize: bool = False) -> dict:
         height, width = frame.shape[:2]
 
-        drivable_mask = np.zeros((height, width), dtype=np.uint8)
-        lane_mask = np.zeros((height, width), dtype=np.uint8)
-        
-        hough_result = {"lane_detected": False, "left_line": None, "right_line": None, "lines_raw": []}
-        hough_offset = None
-        hough_direction = "UNKNOWN"
-        hough_detected = False
-        
-        geo_info = {
-            "lane_detected": False,
-            "lane_offset": None,
-            "direction": "UNKNOWN",
-            "curvature_m": None,
-            "left_line": None,
-            "right_line": None
-        }
-
-        # 1. Lane detection (DeepLab / OpenCV Fallback)
+        # 1. Lane detection
         if self.config.get("lane_detection", True):
             # Tối ưu: Thu nhỏ ảnh trước khi đưa vào DeepLab để tăng FPS
             small_frame = cv2.resize(frame, (640, 360))
@@ -157,18 +129,17 @@ class LanePipeline:
             drivable_mask = cv2.resize(drivable_mask_small, (width, height), interpolation=cv2.INTER_NEAREST)
             lane_mask = cv2.resize(lane_mask_small, (width, height), interpolation=cv2.INTER_NEAREST)
             
-            # 1.1 Thử nhận dạng bằng Hough trước (Primary)
-            hough_result = self.hough.detect(frame)
-            hough_detected = hough_result["lane_detected"]
-            
-            if hough_detected:
-                # Tính offset cho Hough
-                left_line = hough_result["left_line"]
-                right_line = hough_result["right_line"]
-                hough_offset, hough_direction = self.hough.calculate_offset(left_line, right_line, width, height)
-            
-            # 1.2 Nhận dạng bằng Geometry (Sliding Window) để tính Curvature hoặc làm Fallback
-            geo_info = self.geometry.analyze_lane(lane_mask)
+            lane_info = self.geometry.analyze_lane(lane_mask)
+        else:
+            drivable_mask = np.zeros((height, width), dtype=np.uint8)
+            lane_mask = np.zeros((height, width), dtype=np.uint8)
+            lane_info = {
+                "lane_detected": False,
+                "lane_offset": None,
+                "direction": "UNKNOWN",
+                "left_line": None,
+                "right_line": None
+            }
 
         # 2. Local Vehicle detection & Distance estimation on RAM
         self.frame_counter += 1
@@ -237,28 +208,17 @@ class LanePipeline:
         # Data fusion: subtract obstacles from drivable area
         fused_drivable = self.fusion.fuse(drivable_mask, detections)
 
-        # Lấy thông số làn đường hợp nhất từ Hough (ưu tiên) hoặc Geometry (fallback)
-        lane_detected = hough_detected or geo_info["lane_detected"]
-        lane_offset = hough_offset if hough_detected else geo_info["lane_offset"]
-        direction = hough_direction if hough_detected else geo_info["direction"]
-        curvature_m = geo_info["curvature_m"]
-
-        # 4. RabbitMQ state machine & EventClient warnings
-        if lane_detected and direction in ["LEFT", "RIGHT"] and lane_offset is not None:
-            self.event_client.send_departure_warning(
-                lane_offset=lane_offset,
-                direction=direction
-            )
-
+        # 4. RabbitMQ state machine with cooldown logic
+        import time
         if self._publisher is not None:
             # ── Stream 1: Lane Safety ──────────────────────────────
-            lane_has_anomaly = lane_detected and (direction in ["LEFT", "RIGHT"])
+            lane_has_anomaly = lane_info["lane_detected"] and (lane_info["direction"] in ["LEFT", "RIGHT"])
             msg_lane = "Xe dang di dung lan duong."
             weight_lane = 0.0
             
             if lane_has_anomaly:
-                offset_val = lane_offset
-                dir_str = "trai" if direction == "LEFT" else "phai"
+                offset_val = lane_info["lane_offset"]
+                dir_str = "trai" if lane_info["direction"] == "LEFT" else "phai"
                 msg_lane = f"Canh bao: Xe lech lan ve ben {dir_str} (offset: {offset_val}m)!"
                 weight_lane = float(abs(offset_val)) if offset_val is not None else 1.0
                 
@@ -333,50 +293,25 @@ class LanePipeline:
                         self._vehicle_last_payload = None
                         self._vehicle_is_warning = False
 
+
+
         # 5. Vẽ trực quan hóa lên luồng phát livestream / video output
         if visualize:
-            # Map risk level từ gRPC sang dạng Alert tương thích draw_hud
-            distance_alert = "SAFE"
-            if global_risk_level == "low":
-                distance_alert = "WARNING"
-            elif global_risk_level in ["high", "critical"]:
-                distance_alert = "DANGER"
+            # Vẽ vùng di chuyển được sạch (màu xanh lá)
+            overlay = frame.copy()
+            overlay[fused_drivable == 255] = [0, 255, 0]
+            cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
 
-            # ── Trường hợp 1: Có làn đường phát hiện bằng Hough (Primary) ─────────
-            if hough_detected:
-                result = self.hough.draw_overlay(
-                    frame=frame,
-                    hough_result=hough_result,
-                    lane_offset=lane_offset if lane_offset is not None else 0.0,
-                    direction=direction,
-                    distance_alert=distance_alert,
-                    draw_raw_lines=False,
-                )
-                frame[:] = result[:]
+            # Vẽ vạch kẻ đường biên trái (màu xanh dương) và biên phải (màu đỏ)
+            if self.config.get("lane_detection", True):
+                left_line = lane_info.get("left_line")
+                right_line = lane_info.get("right_line")
+                if left_line:
+                    cv2.line(frame, left_line[0], left_line[1], (255, 0, 0), 3, cv2.LINE_AA)
+                if right_line:
+                    cv2.line(frame, right_line[0], right_line[1], (0, 0, 255), 3, cv2.LINE_AA)
 
-            # ── Trường hợp 2: Fallback sang Geometry (Sliding Window) ─────────────
-            elif geo_info.get("lane_detected", False):
-                # Chạy draw_lane_overlay từ geometry
-                geo_with_hud = self.geometry.analyze_lane(lane_mask, orig_frame=frame, detections=detections)
-                if geo_with_hud.get("overlay_frame") is not None:
-                    frame[:] = geo_with_hud["overlay_frame"][:]
-
-            # ── Trường hợp 3: Không có làn được nhận dạng (Vẽ Drivable Area nếu có) ──
-            else:
-                overlay = frame.copy()
-                overlay[fused_drivable == 255] = [0, 200, 60]
-                cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
-
-                # Vẽ HUD trạng thái mất làn
-                draw_hud(
-                    frame,
-                    lane_offset=None,
-                    direction="UNKNOWN",
-                    distance_alert=distance_alert,
-                    lane_detected=False,
-                )
-
-            # Vẽ bounding boxes và khoảng cách của phương tiện từ gRPC lên trên cùng
+            # Vẽ bounding boxes và khoảng cách của phương tiện từ gRPC
             for obj in grpc_objects:
                 x1, y1, x2, y2 = [int(v) for v in obj["bbox"]]
                 
@@ -409,9 +344,12 @@ class LanePipeline:
             cv2.rectangle(hud_bg, (10, 10), (350, 80), (0, 0, 0), -1)
             cv2.addWeighted(hud_bg, 0.6, frame, 0.4, 0, frame)
 
-            if lane_offset is not None:
-                hud_text = f"LANE OFFSET: {lane_offset:.2f}m ({direction})"
-                text_color = (0, 0, 255) if direction in ["LEFT", "RIGHT"] else (0, 255, 0)
+            offset_val = lane_info.get("lane_offset")
+            direction_val = lane_info.get("direction")
+            
+            if offset_val is not None:
+                hud_text = f"LANE OFFSET: {offset_val}m ({direction_val})"
+                text_color = (0, 0, 255) if direction_val in ["LEFT", "RIGHT"] else (0, 255, 0)
             else:
                 hud_text = "LANE: UNKNOWN"
                 text_color = (255, 255, 255)
@@ -431,15 +369,14 @@ class LanePipeline:
             "frame_height": height,
             "detections": detections,
             "num_detections": len(detections),
-            "lane_detected": lane_detected,
-            "lane_offset": lane_offset,
-            "direction": direction,
-            "curvature_m": curvature_m,
+            "lane_detected": lane_info["lane_detected"],
+            "lane_offset": lane_info["lane_offset"],
+            "direction": lane_info["direction"],
             "global_risk_level": global_risk_level,
             "global_alert_msg": global_alert_msg,
             "camera_occluded": camera_occluded,
             "objects": grpc_objects,
             "traffic_signs": traffic_signs,
             "num_traffic_signs": len(traffic_signs),
-            "message": "gRPC Lane-Vehicle Pipeline active with Dual-Mode Hough/Sliding Window.",
+            "message": "gRPC Lane-Vehicle Pipeline active.",
         }
