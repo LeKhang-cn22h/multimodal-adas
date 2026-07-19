@@ -22,6 +22,7 @@
 ## 5. Ràng buộc
 - Phải đảm bảo kiểm tra giao cắt trên toàn bộ tập điểm vẽ `ploty` hoặc lưới điểm chia dày (dense check) thay vì chỉ kiểm tra 2 đầu mút `y = 0` và `y = h - 1`.
 - Không làm giảm hiệu suất xử lý (FPS) của luồng video thời gian thực.
+- Cắt giảm chiều cao vùng nhận diện (ROI) ở phía trên xuống khoảng một nửa (giới hạn từ 75% - 76% chiều cao khung hình trở xuống) để loại bỏ hoàn toàn nhiễu từ khung vòm thép và lan can của các cầu.
 
 ## 6. Service bị ảnh hưởng
 - `lane-service`

@@ -27,8 +27,8 @@ class LaneGeometry:
         # Tọa độ nguồn cho perspective warp (tỷ lệ / frame size)
         # Format: [TopLeft, TopRight, BottomLeft, BottomRight] (x_ratio, y_ratio)
         self.src_pts = np.float32([
-            (0.44, 0.55),   # Top-left  — nâng cao để nhìn xa trên cao tốc
-            (0.56, 0.55),   # Top-right — nâng cao để nhìn xa trên cao tốc
+            (0.44, 0.76),   # Top-left  — giới hạn để loại bỏ vòm cầu và lan can
+            (0.56, 0.76),   # Top-right — giới hạn để loại bỏ vòm cầu và lan can
             (0.18, 1.00),   # Bottom-left — thu hẹp lại để loại bỏ làn bên cạnh và hộ lan
             (0.82, 1.00),   # Bottom-right — thu hẹp lại để loại bỏ làn bên cạnh và hộ lan
         ])
@@ -283,8 +283,8 @@ class LaneGeometry:
         h, w = orig_frame.shape[:2]
         color_img = np.zeros((h, w, 3), dtype=np.uint8)
 
-        # Cắt polygon: chỉ vẽ từ 60% chiều cao ảnh trở xuống (tránh kéo dài tới đường chân trời)
-        y_start = int(h * 0.60)
+        # Cắt polygon: chỉ vẽ từ 76% chiều cao ảnh trở xuống (tránh kéo dài tới đường chân trời)
+        y_start = int(h * 0.76)
         mask_y = ploty >= y_start
         ploty_clip   = ploty[mask_y]
         left_clip    = left_fitx[mask_y]

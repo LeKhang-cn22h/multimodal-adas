@@ -7,13 +7,14 @@
 - `lane-service`
 
 ## Mô tả chức năng
-- **Đầu vào**: Các hệ số đa thức bậc 2 được fit bởi Sliding Window trong lớp `LaneGeometry`.
+- **Đầu vào**: Các hệ số đa thức bậc 2 được fit bởi Sliding Window trong lớp `LaneGeometry` và mask phân vùng ảnh đầu vào.
 - **Chức năng**:
+  - Tích hợp bộ lọc ROI giới hạn từ `0.76 * height` trở xuống (cắt bớt một nửa chiều cao quét từ trên xuống) để bỏ qua phần vòm cầu và lan can cầu.
   - Tính toán và so sánh tọa độ X của làn trái và phải tại các điểm chia trên trục Y trong không gian warped (bird's-eye view).
   - So sánh chi tiết trên toàn bộ khoảng đánh giá `[0, h - 1]`.
   - Nếu tồn tại vị trí mà vạch trái lấn sang bên phải vạch phải ($x_{left} \ge x_{right}$), đánh dấu là có sự giao cắt (Crossover anomaly).
   - Thực hiện fallback về EMA history hoặc trả về `None` cho tọa độ vẽ làn.
-- **Đầu ra**: Tập hợp tọa độ vẽ làn đường ổn định không bị chéo.
+- **Đầu ra**: Tập hợp tọa độ vẽ làn đường và vùng di chuyển ổn định không bị chéo và không bị lệch bởi nhiễu lan can cầu.
 
 ## Acceptance Criteria
 - Khi chạy trên camera thực tế hoặc video test, không xuất hiện hình chữ X màu xanh dương và đỏ cắt nhau.
