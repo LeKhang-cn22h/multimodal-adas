@@ -24,6 +24,101 @@ print("Loading LanePipeline (YOLOv11)...")
 global_pipeline = LanePipeline()
 print("LanePipeline loaded successfully.")
 
+# ── Threaded Video Source for Smooth Loading & Switching ─────────────────────
+import threading
+import time
+import requests
+import numpy as np
+
+class ThreadedVideoSource:
+    def __init__(self):
+        self.current_path = None
+        self.frame = None
+        self.success = False
+        self.lock = threading.Lock()
+        self.thread = None
+        self.running = False
+        
+    def start(self, initial_path):
+        self.current_path = initial_path
+        self.running = True
+        self.thread = threading.Thread(target=self._update_loop, daemon=True, name="video-streamer-thread")
+        self.thread.start()
+        print(f"[ThreadedVideoSource] Background capturing thread started for source: {initial_path}")
+        
+    def change_source(self, path):
+        with self.lock:
+            if self.current_path != path:
+                print(f"[ThreadedVideoSource] Switching source to: {path}")
+                self.current_path = path
+                self.success = False  # Reset until new source yields first frame
+                
+    def read(self):
+        with self.lock:
+            if not self.success or self.frame is None:
+                return False, None
+            return True, self.frame.copy()
+            
+    def _update_loop(self):
+        last_video = None
+        cap = None
+        while self.running:
+            with self.lock:
+                path = self.current_path
+            
+            if path is None:
+                time.sleep(0.1)
+                continue
+                
+            is_http = path.startswith("http://") or path.startswith("https://")
+            
+            if path != last_video:
+                if cap is not None:
+                    cap.release()
+                    cap = None
+                last_video = path
+                if not is_http:
+                    cap = cv2.VideoCapture(path)
+            
+            if is_http:
+                try:
+                    r = requests.get(path, timeout=0.4)
+                    if r.status_code == 200:
+                        nparr = np.frombuffer(r.content, np.uint8)
+                        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        success = frame is not None
+                    else:
+                        success = False
+                except Exception:
+                    success = False
+                
+                if success:
+                    with self.lock:
+                        self.frame = frame
+                        self.success = True
+                    time.sleep(0.03)  # Limit request rate for HTTP
+                else:
+                    time.sleep(0.1)
+            else:
+                if cap is not None and cap.isOpened():
+                    success, frame = cap.read()
+                    if success and frame is not None:
+                        with self.lock:
+                            self.frame = frame
+                            self.success = True
+                        time.sleep(0.02)  # Cap CPU at ~50fps
+                    else:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        time.sleep(0.01)
+                else:
+                    time.sleep(0.1)
+                    
+    def stop(self):
+        self.running = False
+        if self.thread:
+            self.thread.join(timeout=1.0)
+
+
 # ── FastAPI App ───────────────────────────────────────────────────────────────
 app = FastAPI(title="Lane Detection Service", version="2.0.0")
 
@@ -36,6 +131,10 @@ VIDEO_DIR = os.path.join(APP_DIR, "..", "data", "test_videos")
 os.makedirs(VIDEO_DIR, exist_ok=True)
 
 VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".wmv", ".flv"}
+
+# Khởi tạo và kích hoạt luồng phát ngầm
+video_streamer = ThreadedVideoSource()
+video_streamer.start(os.path.join(VIDEO_DIR, "solidWhiteRight.mp4"))
 
 
 def analyze_video_file(
@@ -239,50 +338,31 @@ def stream_video():
     """MJPEG live stream của video đang active, đã chạy qua ADAS pipeline."""
     def generate_frames():
         import time
-        import requests
         import numpy as np
         global latest_live_status
-        last_video = None
-        cap = None
-        is_http = False
+        global video_streamer
+        
         frame_counter = 0
         last_overlay = None   # Cache overlay từ frame trước để tái sử dụng
+        
         while True:
             global current_stream_path
-            if current_stream_path != last_video:
-                if cap is not None:
-                    cap.release()
-                    cap = None
-                last_video = current_stream_path
-                is_http = current_stream_path.startswith("http://") or current_stream_path.startswith("https://")
-                if not is_http:
-                    cap = cv2.VideoCapture(last_video)
-
-            if is_http:
-                try:
-                    r = requests.get(current_stream_path, timeout=0.5)
-                    if r.status_code == 200:
-                        nparr = np.frombuffer(r.content, np.uint8)
-                        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                        success = frame is not None
-                    else:
-                        success = False
-                except Exception:
-                    success = False
-                if not success:
-                    time.sleep(0.1)
-                    continue
-            else:
-                if cap is None or not cap.isOpened():
-                    time.sleep(0.1)
-                    last_video = None
-                    continue
-
-                success, frame = cap.read()
-                if not success:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    continue
-
+            # Yêu cầu background thread đổi nguồn nếu cần
+            video_streamer.change_source(current_stream_path)
+            
+            success, frame = video_streamer.read()
+            if not success or frame is None:
+                # Nếu nguồn mới chưa sẵn sàng, dùng ảnh cũ làm fallback để chống chớp giật
+                if last_overlay is not None:
+                    frame = last_overlay.copy()
+                else:
+                    # Trả về frame màn hình chờ đen
+                    frame = np.zeros((360, 640, 3), dtype=np.uint8)
+                    cv2.putText(
+                        frame, "LOADING VIDEO SOURCE...", (120, 180),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA
+                    )
+            
             # Frame skipping: chạy ADAS pipeline mỗi 2 frame để tăng FPS
             frame_counter += 1
             if frame_counter % 2 == 0:
@@ -300,9 +380,9 @@ def stream_video():
 
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-
-        if cap is not None:
-            cap.release()
+            
+            # Tránh hogging CPU
+            time.sleep(0.01)
 
     return StreamingResponse(
         generate_frames(),

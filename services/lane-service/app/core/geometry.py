@@ -283,8 +283,8 @@ class LaneGeometry:
         h, w = orig_frame.shape[:2]
         color_img = np.zeros((h, w, 3), dtype=np.uint8)
 
-        # Cắt polygon: chỉ vẽ từ 60% chiều cao ảnh trở xuống (tránh kéo dài tới đường chân trời)
-        y_start = int(h * 0.60)
+        # Cắt polygon: chỉ vẽ từ 65% chiều cao ảnh trở xuống (tránh kéo dài tới đường chân trời)
+        y_start = int(h * 0.65)
         mask_y = ploty >= y_start
         ploty_clip   = ploty[mask_y]
         left_clip    = left_fitx[mask_y]

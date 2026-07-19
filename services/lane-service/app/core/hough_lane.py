@@ -220,6 +220,16 @@ class HoughLaneDetector:
         left_line  = self._weighted_average(left_raw,  self._left_buffer,  y_bottom, y_top)
         right_line = self._weighted_average(right_raw, self._right_buffer, y_bottom, y_top)
 
+        # ── Bộ lọc chống giao cắt (Crossover Protection) ──
+        # Nếu cả 2 biên vạch đều được phát hiện, kiểm tra xem chúng có giao nhau ở xa không (lỗi hình chữ X)
+        if left_line is not None and right_line is not None:
+            # left_line: (x_bot_l, y_bottom, x_top_l, y_top)
+            # right_line: (x_bot_r, y_bottom, x_top_r, y_top)
+            # Nếu x_top bên trái >= x_top bên phải -> Hai đường đã giao nhau chéo
+            if left_line[2] >= right_line[2]:
+                left_line = None
+                right_line = None
+
         return {
             "lines_raw":    [l.tolist() for l in lines],
             "left_line":    left_line,

@@ -63,16 +63,30 @@ class DeepLabSegmenter:
 
     def segment(self, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """
-        Phân vùng khung hình.
+        Phân vùng khung hình kết hợp AI + OpenCV Fusion.
         """
         height, width = frame.shape[:2]
 
+        # 1. Định nghĩa ROI hình thang chung cho OpenCV
+        roi_pts = np.array([
+            [int(width * 0.10), height],
+            [int(width * 0.40), int(height * 0.52)],
+            [int(width * 0.60), int(height * 0.52)],
+            [int(width * 0.90), height],
+        ], np.int32)
+        roi_mask = np.zeros((height, width), dtype=np.uint8)
+        cv2.fillPoly(roi_mask, [roi_pts], 255)
+
+        # 2. Nhánh AI (Nếu có trọng số model)
+        ai_drivable = None
+        ai_lane = None
+        
         if self.has_weights:
             try:
                 import torch
                 import torchvision.transforms as T
                 
-                # Chuyen doi va resize anh de dua vao model PyTorch
+                # Chuyển đổi và resize ảnh để đưa vào model PyTorch
                 img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 img_resized = cv2.resize(img_rgb, (640, 360))
                 
@@ -86,29 +100,45 @@ class DeepLabSegmenter:
                     output = self.model(img_tensor)['out']
                     pred = torch.argmax(output, dim=1).squeeze(0).cpu().numpy()
                 
-                # Resize mat na pred ve lai kich thuoc ban dau bang INTER_NEAREST
+                # Resize mặt nạ pred về lại kích thước ban đầu bằng INTER_NEAREST
                 pred_resized = cv2.resize(pred.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST)
                 
-                # Phuc hoi drivable area (class 1) va lane marking (class 2)
-                drivable_area_mask = ((pred_resized == 1) * 255).astype(np.uint8)
-                lane_marking_mask = ((pred_resized == 2) * 255).astype(np.uint8)
-                
-                return drivable_area_mask, lane_marking_mask
+                # Phục hồi drivable area (class 1) và lane marking (class 2)
+                ai_drivable = ((pred_resized == 1) * 255).astype(np.uint8)
+                ai_lane = ((pred_resized == 2) * 255).astype(np.uint8)
             except Exception as e:
-                print(f"[DeepLabSegmenter] Error during AI inference, falling back to OpenCV. Error: {e}")
+                print(f"[DeepLabSegmenter] Error during AI inference: {e}")
+                self.has_weights = False
 
+        # 3. Nhánh OpenCV truyền thống
+        cv_drivable, cv_lane = self._opencv_segment(frame, height, width, roi_mask)
 
-        # ── Xây dựng ROI (hình thang nhìn về phía trước xe) ─────────────────
-        roi_pts = np.array([
-            [int(width * 0.10), height],
-            [int(width * 0.40), int(height * 0.52)],
-            [int(width * 0.60), int(height * 0.52)],
-            [int(width * 0.90), height],
-        ], np.int32)
+        # 4. Hợp nhất kết quả (AI + CV Fusion)
+        if ai_drivable is not None and ai_lane is not None:
+            # Drivable area: Tin tưởng hoàn toàn vào AI để tránh giới hạn hình thang của ROI
+            drivable_area_mask = ai_drivable
+            
+            # Vạch kẻ đường (Fusion): Dùng AI khoanh vùng tìm kiếm (search region) 
+            # để lọc bỏ tất cả cạnh nhiễu của OpenCV nằm ngoài đường lái xe
+            ai_lane_dilated = cv2.dilate(ai_lane, np.ones((9, 9), np.uint8))
+            fused_lane = cv2.bitwise_and(cv_lane, ai_lane_dilated)
+            
+            # Kết hợp ngược lại với dự đoán vạch của AI để tránh mất làn ở vùng quá tối
+            lane_marking_mask = cv2.bitwise_or(fused_lane, ai_lane)
+            
+            # Đảm bảo chỉ lấy trong vùng chạy được rộng của xe
+            lane_marking_mask = cv2.bitwise_and(lane_marking_mask, cv_drivable)
+        else:
+            # Fallback hoàn toàn về OpenCV nếu không nạp được weights
+            drivable_area_mask = cv_drivable
+            lane_marking_mask = cv_lane
 
-        roi_mask = np.zeros((height, width), dtype=np.uint8)
-        cv2.fillPoly(roi_mask, [roi_pts], 255)
+        return drivable_area_mask, lane_marking_mask
 
+    def _opencv_segment(self, frame: np.ndarray, height: int, width: int, roi_mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Nhận diện làn đường và vạch kẻ bằng bộ lọc màu HSV và Canny Edge Detection.
+        """
         # ── Nhánh 1: Lọc màu HSV (trắng + vàng) ─────────────────────────────
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
@@ -124,13 +154,12 @@ class DeepLabSegmenter:
 
         hsv_mask = cv2.bitwise_or(white_mask, yellow_mask)
 
-        # ── Nhánh 2: Canny Edge Detection (kỹ thuật từ 3 file tham khảo) ─────
+        # ── Nhánh 2: Canny Edge Detection ─────────────────────────────────
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         dilated = cv2.dilate(gray, kernel=self._dilation_kernel)
         canny_mask = cv2.Canny(dilated, 60, 200)
 
         # Lọc bỏ Canny nằm ngoài vùng màu vàng/trắng (giảm nhiễu từ vật thể khác)
-        # Chỉ giữ pixel Canny nằm gần vùng HSV để tránh nhận nhầm xe/bầu trời
         dilated_hsv = cv2.dilate(hsv_mask, np.ones((7, 7), np.uint8))
         canny_filtered = cv2.bitwise_and(canny_mask, dilated_hsv)
 
@@ -147,6 +176,7 @@ class DeepLabSegmenter:
 
         # ── Drivable area mask ────────────────────────────────────────────────
         drivable_area_mask = np.zeros((height, width), dtype=np.uint8)
-        cv2.fillPoly(drivable_area_mask, [roi_pts], 255)
+        # Sử dụng ROI hình thang mặc định làm vùng đi được
+        drivable_area_mask[:] = roi_mask[:]
 
         return drivable_area_mask, lane_marking_mask

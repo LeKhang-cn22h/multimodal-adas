@@ -16,8 +16,10 @@ import adas_pb2
 import adas_pb2_grpc
 from core.yolo_detector import YOLODetector
 from core.deeplab_segmenter import DeepLabSegmenter
+from core.hough_lane import HoughLaneDetector
 from core.geometry import LaneGeometry
 from core.fusion import DataFusion
+from core.hud import draw_hud
 from event_client import EventClient
 
 
@@ -34,6 +36,14 @@ class LanePipeline:
     def __init__(self, yolo_detector: YOLODetector = None):
         self.yolo_detector = yolo_detector or YOLODetector()
         self.deeplab = DeepLabSegmenter()
+        self.hough = HoughLaneDetector(
+            canny_low=60,
+            canny_high=200,
+            hough_threshold=40,
+            min_line_length=10,
+            max_line_gap=5,
+            roi_top_ratio=0.67,
+        )
         self.geometry = LaneGeometry()
         self.fusion = DataFusion()
         self.event_client = EventClient()
@@ -106,6 +116,23 @@ class LanePipeline:
         height, width = frame.shape[:2]
 
         # 1. Nhận diện Làn đường
+        drivable_mask = np.zeros((height, width), dtype=np.uint8)
+        lane_mask = np.zeros((height, width), dtype=np.uint8)
+        
+        hough_result = {"lane_detected": False, "left_line": None, "right_line": None, "lines_raw": []}
+        hough_offset = None
+        hough_direction = "UNKNOWN"
+        hough_detected = False
+        
+        geo_info = {
+            "lane_detected": False,
+            "lane_offset": None,
+            "direction": "UNKNOWN",
+            "curvature_m": None,
+            "left_line": None,
+            "right_line": None
+        }
+
         if self.config.get("lane_detection", True):
             # Phân vùng đường & vạch kẻ (DeepLabV3+ hoặc Fallback OpenCV nếu tắt DeepLab Seg.)
             # Tối ưu: Thu nhỏ ảnh trước khi đưa vào DeepLab để tăng FPS
@@ -116,17 +143,40 @@ class LanePipeline:
             drivable_mask = cv2.resize(drivable_mask_small, (width, height), interpolation=cv2.INTER_NEAREST)
             lane_mask = cv2.resize(lane_mask_small, (width, height), interpolation=cv2.INTER_NEAREST)
             
-            lane_info = self.geometry.analyze_lane(lane_mask)
+            # ── Hough — Phát hiện làn chính (PRIMARY) ──────────────────
+            hough_result = self.hough.detect(frame)
+            hough_offset, hough_direction = self.hough.compute_offset(
+                hough_result["left_line"],
+                hough_result["right_line"],
+                frame_w=width,
+            )
+            hough_detected = hough_result["lane_detected"]
+
+            # ── Geometry — Sliding Window (FALLBACK) ──────────────────
+            geo_info = self.geometry.analyze_lane(lane_mask)
+
+        # ── Tổng hợp kết quả: ưu tiên Hough, fallback sang Geometry ────────
+        if hough_detected:
+            lane_detected = True
+            lane_offset   = hough_offset
+            direction     = hough_direction
+            curvature_m   = geo_info.get("curvature_m")  # Lấy curvature từ Geometry
+            left_line     = hough_result["left_line"]
+            right_line    = hough_result["right_line"]
+        elif geo_info["lane_detected"]:
+            lane_detected = True
+            lane_offset   = geo_info["lane_offset"]
+            direction     = geo_info["direction"]
+            curvature_m   = geo_info.get("curvature_m")
+            left_line     = geo_info.get("left_line")
+            right_line    = geo_info.get("right_line")
         else:
-            drivable_mask = np.zeros((height, width), dtype=np.uint8)
-            lane_mask = np.zeros((height, width), dtype=np.uint8)
-            lane_info = {
-                "lane_detected": False,
-                "lane_offset": None,
-                "direction": "UNKNOWN",
-                "left_line": None,
-                "right_line": None
-            }
+            lane_detected = False
+            lane_offset   = None
+            direction     = "UNKNOWN"
+            curvature_m   = None
+            left_line     = None
+            right_line    = None
 
         # 2. Nhận diện phương tiện & đo khoảng cách qua gRPC (gọi vehicle-service)
         grpc_objects = []
@@ -176,29 +226,56 @@ class LanePipeline:
         fused_drivable = self.fusion.fuse(drivable_mask, detections)
 
         # 4. Gửi cảnh báo nếu xe chệch làn đường (EventClient)
-        if lane_info["lane_detected"] and lane_info["direction"] in ["LEFT", "RIGHT"]:
+        if lane_detected and direction in ["LEFT", "RIGHT"] and lane_offset is not None:
             self.event_client.send_departure_warning(
-                lane_offset=lane_info["lane_offset"],
-                direction=lane_info["direction"]
+                lane_offset=lane_offset,
+                direction=direction
             )
 
         # 5. Vẽ trực quan hóa lên luồng phát livestream / video output
         if visualize:
-            # Vẽ vùng di chuyển được sạch (màu xanh lá)
-            overlay = frame.copy()
-            overlay[fused_drivable == 255] = [0, 255, 0]
-            cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
+            # Map risk level từ gRPC sang dạng Alert tương thích draw_hud
+            distance_alert = "SAFE"
+            if global_risk_level == "low":
+                distance_alert = "WARNING"
+            elif global_risk_level in ["high", "critical"]:
+                distance_alert = "DANGER"
 
-            # Vẽ vạch kẻ đường biên trái (màu xanh dương) và biên phải (màu đỏ)
-            if self.config.get("lane_detection", True):
-                left_line = lane_info.get("left_line")
-                right_line = lane_info.get("right_line")
-                if left_line:
-                    cv2.line(frame, left_line[0], left_line[1], (255, 0, 0), 3, cv2.LINE_AA)
-                if right_line:
-                    cv2.line(frame, right_line[0], right_line[1], (0, 0, 255), 3, cv2.LINE_AA)
+            # ── Trường hợp 1: Có làn đường phát hiện bằng Hough (Primary) ─────────
+            if hough_detected:
+                result = self.hough.draw_overlay(
+                    frame=frame,
+                    hough_result=hough_result,
+                    lane_offset=lane_offset if lane_offset is not None else 0.0,
+                    direction=direction,
+                    distance_alert=distance_alert,
+                    draw_raw_lines=False,
+                )
+                frame[:] = result[:]
 
-            # Vẽ bounding boxes và khoảng cách của phương tiện từ gRPC
+            # ── Trường hợp 2: Fallback sang Geometry (Sliding Window) ─────────────
+            elif geo_info.get("lane_detected", False):
+                # Chạy draw_lane_overlay từ geometry
+                geo_with_hud = self.geometry.analyze_lane(lane_mask, orig_frame=frame, detections=detections)
+                if geo_with_hud.get("overlay_frame") is not None:
+                    frame[:] = geo_with_hud["overlay_frame"][:]
+
+            # ── Trường hợp 3: Không có làn được nhận dạng (Vẽ Drivable Area nếu có) ──
+            else:
+                overlay = frame.copy()
+                overlay[fused_drivable == 255] = [0, 200, 60]
+                cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
+
+                # Vẽ HUD trạng thái mất làn
+                draw_hud(
+                    frame,
+                    lane_offset=None,
+                    direction="UNKNOWN",
+                    distance_alert=distance_alert,
+                    lane_detected=False,
+                )
+
+            # Vẽ bounding boxes và khoảng cách của phương tiện từ gRPC lên trên cùng
             for obj in grpc_objects:
                 x1, y1, x2, y2 = [int(v) for v in obj["bbox"]]
                 
@@ -216,42 +293,18 @@ class LanePipeline:
                 cv2.rectangle(frame, (x1, y1 - h_lbl - 5), (x1 + w_lbl, y1), rgb_color, -1)
                 cv2.putText(frame, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
 
-            # Vẽ HUD thông số trên màn hình giám sát
-            hud_bg = frame.copy()
-            cv2.rectangle(hud_bg, (10, 10), (350, 80), (0, 0, 0), -1)
-            cv2.addWeighted(hud_bg, 0.6, frame, 0.4, 0, frame)
-
-            offset_val = lane_info.get("lane_offset")
-            direction_val = lane_info.get("direction")
-            
-            if offset_val is not None:
-                hud_text = f"LANE OFFSET: {offset_val}m ({direction_val})"
-                text_color = (0, 0, 255) if direction_val in ["LEFT", "RIGHT"] else (0, 255, 0)
-            else:
-                hud_text = "LANE: UNKNOWN"
-                text_color = (255, 255, 255)
-            cv2.putText(frame, hud_text, (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 2, cv2.LINE_AA)
-            
-            # Hiển thị mức độ nguy hiểm từ vehicle-service
-            risk_text = f"RISK LEVEL: {global_risk_level.upper()}"
-            risk_color = (0, 255, 0)
-            if global_risk_level == "low":
-                risk_color = (0, 255, 255)
-            elif global_risk_level in ["high", "critical"]:
-                risk_color = (0, 0, 255)
-            cv2.putText(frame, risk_text, (20, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.6, risk_color, 2, cv2.LINE_AA)
-
         return {
             "frame_width": width,
             "frame_height": height,
             "detections": detections,
             "num_detections": len(detections),
-            "lane_detected": lane_info["lane_detected"],
-            "lane_offset": lane_info["lane_offset"],
-            "direction": lane_info["direction"],
+            "lane_detected": lane_detected,
+            "lane_offset": lane_offset,
+            "direction": direction,
+            "curvature_m": curvature_m,
             "global_risk_level": global_risk_level,
             "global_alert_msg": global_alert_msg,
             "camera_occluded": camera_occluded,
             "objects": grpc_objects,
-            "message": "gRPC Lane-Vehicle Pipeline active.",
+            "message": "gRPC Lane-Vehicle Pipeline active with Dual-Mode Hough/Sliding Window.",
         }
