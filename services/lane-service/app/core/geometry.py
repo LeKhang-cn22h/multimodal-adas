@@ -165,9 +165,9 @@ class LaneGeometry:
         rf = np.polyfit(righty, rightx, 2)
 
         # Kiểm tra xem đường biên trái và phải có cắt chéo nhau (lỗi hình chữ X do nhiễu vỉa hè) không
-        temp_y = np.array([0, h - 1])
-        left_temp_x = lf[0] * temp_y**2 + lf[1] * temp_y + lf[2]
-        right_temp_x = rf[0] * temp_y**2 + rf[1] * temp_y + rf[2]
+        ploty_check = np.linspace(0, h - 1, 20)
+        left_temp_x = lf[0] * ploty_check**2 + lf[1] * ploty_check + lf[2]
+        right_temp_x = rf[0] * ploty_check**2 + rf[1] * ploty_check + rf[2]
         
         # Nếu cắt nhau (phía trái lấn sang phải), từ chối frame nhiễu này và tái sử dụng dữ liệu lịch sử ổn định
         if np.any(left_temp_x >= right_temp_x):
@@ -424,6 +424,19 @@ class LaneGeometry:
             }
 
         left_fitx, right_fitx, ploty, lf_, rf_ = result
+
+        # Bộ lọc chống giao cắt bổ sung (Defense in Depth)
+        if np.any(left_fitx >= right_fitx):
+            return {
+                "lane_detected":  False,
+                "lane_offset":    None,
+                "direction":      "UNKNOWN",
+                "curvature_m":    None,
+                "left_line":      None,
+                "right_line":     None,
+                "overlay_frame":  orig_frame,
+                "distance_alert": "UNKNOWN",
+            }
 
         # Bước 4: Tính offset và curvature
         offset_m, curvature_m, direction = self._compute_metrics(h, w, left_fitx, right_fitx, ploty)
