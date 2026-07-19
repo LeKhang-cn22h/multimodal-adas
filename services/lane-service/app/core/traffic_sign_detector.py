@@ -19,7 +19,7 @@ try:
     DEFAULT_MODEL_PATH = settings.TRAFFIC_SIGN_MODEL_PATH
     DEFAULT_CONF_THRESHOLD = settings.TRAFFIC_SIGN_CONF_THRESHOLD
 except ImportError:
-    DEFAULT_MODEL_PATH = r"E:\.rover-rasberry\voice\multimodal-adas\traffic-sign-yolo11n-classes_en.pt"
+    DEFAULT_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "traffic-sign-yolo11n-classes_en.pt")
     DEFAULT_CONF_THRESHOLD = 0.45
 
 

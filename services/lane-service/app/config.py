@@ -41,7 +41,7 @@ class Settings:
     DASHBOARD_UDP_PORT = int(os.getenv("DASHBOARD_UDP_PORT", "1236"))
     
     # Traffic Sign YOLO Settings
-    TRAFFIC_SIGN_MODEL_PATH = os.getenv("TRAFFIC_SIGN_MODEL_PATH", r"E:\.rover-rasberry\voice\multimodal-adas\traffic-sign-yolo11n-classes_en.pt")
+    TRAFFIC_SIGN_MODEL_PATH = os.getenv("TRAFFIC_SIGN_MODEL_PATH", os.path.join(BASE_DIR, "models", "traffic-sign-yolo11n-classes_en.pt"))
     TRAFFIC_SIGN_CONF_THRESHOLD = float(os.getenv("TRAFFIC_SIGN_CONF_THRESHOLD", "0.45"))
     
     # Processing limit
@@ -51,4 +51,3 @@ class Settings:
     CAMERA_SERVICE_URL = os.getenv("CAMERA_SERVICE_URL", "http://localhost:8005/frame")
 
 settings = Settings()
-
