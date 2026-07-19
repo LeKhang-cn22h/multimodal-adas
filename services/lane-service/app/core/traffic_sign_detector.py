@@ -37,14 +37,15 @@ class TrafficSignDetector:
         confidence_threshold: Ngưỡng tin cậy tối thiểu.
         device: 'cuda' hoặc 'cpu' (mặc định tự nhận cuda nếu khả dụng).
         """
-        print(f"[TrafficSignDetector] Dang tai model tu: {model_path} tren thiet bi: {device}")
-        
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Khong tim thay file model bien bao tai: {model_path}")
-            
-        self.model = YOLO(model_path)
+        self.model = None
         self.confidence_threshold = confidence_threshold
         self.device = device
+        
+        if not os.path.exists(model_path):
+            print(f"[TrafficSignDetector] WARNING: Model file not found at: {model_path}. Traffic sign detection disabled.")
+            return
+            
+        self.model = YOLO(model_path)
         
         # In danh sách các nhãn nhận diện được để debug
         print(f"[TrafficSignDetector] Model load thanh cong. Danh sach nhan: {list(self.model.names.values())[:10]}... (tong cong {len(self.model.names)} nhan)")
@@ -60,6 +61,9 @@ class TrafficSignDetector:
                 "bbox": {"x1": float, "y1": float, "x2": float, "y2": float}
             }
         """
+        if self.model is None:
+            return []
+
         results = self.model.predict(
             source=frame,
             conf=self.confidence_threshold,

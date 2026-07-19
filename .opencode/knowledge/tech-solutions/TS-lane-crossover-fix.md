@@ -8,6 +8,8 @@ Chỉnh sửa cấu trúc logic trong `services/lane-service/app/core/geometry.p
 1. `LaneGeometry._sliding_window()`:
    - Sửa đổi từ việc kiểm tra chỉ tại 2 đầu mút (`0` và `h-1`) thành kiểm tra lưới điểm dọc (ví dụ: 20 điểm phân bố đều từ `0` đến `h-1`).
    - Nếu có giao cắt, kích hoạt fallback sử dụng EMA hoặc trả về `None`.
+   - **Hạn chế dịch chuyển (Delta Limiting)**: Giới hạn dịch chuyển của tâm cửa sổ trượt tối đa là `max_shift = int(w * 0.08)` so với cửa sổ trước đó để loại bỏ hiện tượng nhảy vạch hoặc nhiễu.
+   - **Tự động đảo ngược nhầm vạch (Auto-Swap)**: Kiểm tra ở đáy ảnh nếu `left_temp_x[-1] > right_temp_x[-1]`, tiến hành đảo ngược hệ số `lf` và `rf` để định hướng đúng vạch trái/phải.
 2. `LaneGeometry.analyze_lane()`:
    - Thêm lớp phòng vệ phụ (Defense in Depth) kiểm tra kết quả `left_fitx` and `right_fitx` sau khi tính toán. Nếu vẫn phát hiện giao cắt, trả về `lane_detected: False` và `left_line: None`, `right_line: None` để bảo vệ hiển thị ở HUD gốc.
 3. **Cắt giảm chiều cao ROI (Hạ đường chân trời nhận diện xuống 0.76)**:

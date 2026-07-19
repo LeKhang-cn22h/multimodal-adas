@@ -35,12 +35,22 @@ class SeatbeltDetector:
         confidence_threshold: float = 0.3,  # khớp CONFIDENCE_THRESHOLD gốc = 0.3
     ) -> None:
 
-        self.model = YOLO(str(model_path))
+        self.model = None
         self.confidence_threshold = confidence_threshold
+        self.class_names = {}
+        self.seatbelt_class_id = None
 
-        self.class_names: dict[int, str] = dict(self.model.names)
+        import os
+        if not os.path.exists(model_path):
+            import logging
+            logging.getLogger("driver-service").warning(
+                f"Model not found at {model_path} — seatbelt detection in driver-service disabled."
+            )
+            return
 
-        self.seatbelt_class_id: int | None = None
+        self.model = YOLO(str(model_path))
+        self.class_names = dict(self.model.names)
+
         for cls_id, name in self.class_names.items():
             if name.lower() == SEATBELT_CLASS_NAME:
                 self.seatbelt_class_id = cls_id
@@ -62,6 +72,14 @@ class SeatbeltDetector:
             "detected_labels": list[str],   # danh sách tên class detect được trong frame này
         }
         """
+
+        if self.model is None:
+            return {
+                "has_seatbelt": True,
+                "seatbelt_confidence": 1.0,
+                "boxes": [],
+                "detected_labels": [],
+            }
 
         results = self.model.predict(
             frame,

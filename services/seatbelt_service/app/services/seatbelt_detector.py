@@ -64,8 +64,11 @@ class SeatbeltDetector:
             model_path = os.path.join(base_dir, model_path)
 
         if not os.path.exists(model_path):
-            self._logger.error("Model not found: %s", model_path)
-            raise FileNotFoundError(f"YOLO model not found: {model_path}")
+            self._logger.warning(
+                "Model not found at %s — seatbelt detection disabled. "
+                "Place best.pt in services/seatbelt_service/ to enable.", model_path
+            )
+            return  # Start service without model; detection calls will return empty result
 
         self._logger.info("Loading YOLO model from %s", model_path)
         self._model = YOLO(model_path)

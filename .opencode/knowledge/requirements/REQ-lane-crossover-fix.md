@@ -23,6 +23,8 @@
 - Phải đảm bảo kiểm tra giao cắt trên toàn bộ tập điểm vẽ `ploty` hoặc lưới điểm chia dày (dense check) thay vì chỉ kiểm tra 2 đầu mút `y = 0` và `y = h - 1`.
 - Không làm giảm hiệu suất xử lý (FPS) của luồng video thời gian thực.
 - Cắt giảm chiều cao vùng nhận diện (ROI) ở phía trên xuống khoảng một nửa (giới hạn từ 75% - 76% chiều cao khung hình trở xuống) để loại bỏ hoàn toàn nhiễu từ khung vòm thép và lan can của các cầu.
+- Hệ thống phải tự động phát hiện và đảo ngược (swap) lại vạch kẻ đường nếu vạch trái và vạch phải bị nhận diện ngược bên nhau ở đáy ảnh.
+- Thuật toán cửa sổ trượt phải có ràng buộc dịch chuyển ngang tối đa giữa các bước liên tiếp để tránh việc cửa sổ nhảy sang làn đối diện do nhiễu đốm sáng hoặc bóng xe.
 
 ## 6. Service bị ảnh hưởng
 - `lane-service`

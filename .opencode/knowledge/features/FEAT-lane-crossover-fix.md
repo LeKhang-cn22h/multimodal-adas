@@ -14,7 +14,9 @@
   - So sánh chi tiết trên toàn bộ khoảng đánh giá `[0, h - 1]`.
   - Nếu tồn tại vị trí mà vạch trái lấn sang bên phải vạch phải ($x_{left} \ge x_{right}$), đánh dấu là có sự giao cắt (Crossover anomaly).
   - Thực hiện fallback về EMA history hoặc trả về `None` cho tọa độ vẽ làn.
-- **Đầu ra**: Tập hợp tọa độ vẽ làn đường và vùng di chuyển ổn định không bị chéo và không bị lệch bởi nhiễu lan can cầu.
+  - Tự động sửa lỗi nhầm vạch (swap vạch): Nếu tọa độ đáy vạch trái lớn hơn tọa độ đáy vạch phải, tự động đảo ngược hệ số của chúng về đúng vị trí.
+  - Hạn chế bước dịch chuyển ngang (delta limit) của tâm cửa sổ trượt tối đa là 8% chiều rộng frame để tránh nhảy sang vạch làn bên cạnh.
+- **Đầu ra**: Tập hợp tọa độ vẽ làn đường và vùng di chuyển ổn định không bị chéo, không bị ngược bên và không bị lệch bởi nhiễu lan can cầu.
 
 ## Acceptance Criteria
 - Khi chạy trên camera thực tế hoặc video test, không xuất hiện hình chữ X màu xanh dương và đỏ cắt nhau.

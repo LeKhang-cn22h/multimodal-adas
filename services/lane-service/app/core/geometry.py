@@ -144,10 +144,15 @@ class LaneGeometry:
             left_inds.append(good_l)
             right_inds.append(good_r)
 
+            max_shift = int(w * 0.08)  # Giới hạn dịch chuyển ngang tối đa tránh nhảy vạch
             if len(good_l) > min_pix:
-                leftx_cur = int(np.mean(nzx[good_l]))
+                new_leftx = int(np.mean(nzx[good_l]))
+                if abs(new_leftx - leftx_cur) < max_shift:
+                    leftx_cur = new_leftx
             if len(good_r) > min_pix:
-                rightx_cur = int(np.mean(nzx[good_r]))
+                new_rightx = int(np.mean(nzx[good_r]))
+                if abs(new_rightx - rightx_cur) < max_shift:
+                    rightx_cur = new_rightx
 
         left_inds  = np.concatenate(left_inds)
         right_inds = np.concatenate(right_inds)
@@ -168,6 +173,11 @@ class LaneGeometry:
         ploty_check = np.linspace(0, h - 1, 20)
         left_temp_x = lf[0] * ploty_check**2 + lf[1] * ploty_check + lf[2]
         right_temp_x = rf[0] * ploty_check**2 + rf[1] * ploty_check + rf[2]
+        
+        # Tự động sửa lỗi nhầm vạch (swap vạch) nếu vạch trái nằm bên phải vạch phải ở đáy ảnh
+        if left_temp_x[-1] > right_temp_x[-1]:
+            lf, rf = rf, lf
+            left_temp_x, right_temp_x = right_temp_x, left_temp_x
         
         # Nếu cắt nhau (phía trái lấn sang phải), từ chối frame nhiễu này và tái sử dụng dữ liệu lịch sử ổn định
         if np.any(left_temp_x >= right_temp_x):
