@@ -1,9 +1,0 @@
-# Thư mục này chứa video test để chạy lane-service.
-# Các file video KHÔNG được push lên Git (đã thêm vào .gitignore).
-#
-# Tải video mẫu về tại:
-#   - solidWhiteRight.mp4  — Udacity lane dataset
-#   - solidYellowLeft.mp4  — Udacity lane dataset
-#   - Video camera hành trình VN: chia sẻ qua nhóm nội bộ
-#
-# Đặt video vào thư mục này rồi khởi chạy: python app/main.py

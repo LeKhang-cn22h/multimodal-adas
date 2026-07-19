@@ -1,9 +1,0 @@
-# ByteTrack tracker defaults for mode="track" (ADAS optimized)
-
-tracker_type: bytetrack # (str) Tracker backend: bytetrack
-track_high_thresh: 0.15 # Lowered to track lower confidence detections (v3.0+)
-track_low_thresh: 0.1 # Second-stage threshold for low-score matches
-new_track_thresh: 0.15 # Lowered to allow initializing tracks on lower confidence detections (v3.0+)
-track_buffer: 30 # Frames to keep lost tracks alive
-match_thresh: 0.8 # Association similarity threshold (IoU/cost)
-fuse_score: True # Fuse detection score with motion/IoU for matching

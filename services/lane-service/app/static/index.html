@@ -72,33 +72,28 @@
 
         <div class="panel-section">
           <div class="panel-header" onclick="togglePanel(this)">
-            <span>BO LOC SERVICES (ADAS)</span><span class="chev">&#9660;</span>
+            <span>LOAI TAI NGUYEN</span><span class="chev">&#9660;</span>
           </div>
           <div class="resource-list">
-            <div class="resource-item clickable" onclick="onToggleClick('lane', 'toggle-lane')">
-              <span class="dot blue"></span>
-              <span class="rname">Lane Detection Service</span>
-              <div class="toggle" id="toggle-lane"></div>
-            </div>
-            <div class="resource-item clickable" onclick="onToggleClick('deeplab', 'toggle-deeplab')">
-              <span class="dot teal"></span>
-              <span class="rname">&nbsp;&nbsp;└─ DeepLab Segmenter</span>
-              <div class="toggle" id="toggle-deeplab"></div>
-            </div>
-            <div class="resource-item clickable" onclick="onToggleClick('vehicle', 'toggle-vehicle')">
-              <span class="dot orange"></span>
-              <span class="rname">Vehicle Distance Service</span>
-              <div class="toggle" id="toggle-vehicle"></div>
-            </div>
-            <div class="resource-item clickable" onclick="onToggleClick('driver', 'toggle-driver')">
-              <span class="dot red"></span>
-              <span class="rname">Driver Drowsiness Service</span>
-              <div class="toggle" id="toggle-driver"></div>
-            </div>
-            <div class="resource-item clickable" onclick="onToggleClick('seatbelt', 'toggle-seatbelt')">
+            <div class="resource-item">
               <span class="dot green"></span>
-              <span class="rname">Seatbelt Detection Service</span>
-              <div class="toggle" id="toggle-seatbelt"></div>
+              <span class="rname">Camera ADAS</span>
+              <div class="toggle" onclick="this.classList.toggle('off')"></div>
+            </div>
+            <div class="resource-item">
+              <span class="dot blue"></span>
+              <span class="rname">Lane Detection</span>
+              <div class="toggle" onclick="this.classList.toggle('off')"></div>
+            </div>
+            <div class="resource-item">
+              <span class="dot orange"></span>
+              <span class="rname">Object Detection</span>
+              <div class="toggle" onclick="this.classList.toggle('off')"></div>
+            </div>
+            <div class="resource-item">
+              <span class="dot teal"></span>
+              <span class="rname">DeepLab Seg.</span>
+              <div class="toggle off" onclick="this.classList.toggle('off')"></div>
             </div>
           </div>
         </div>
@@ -180,13 +175,7 @@
           <pre id="json-output"></pre>
         </div>
 
-        <!-- Vehicle Distance List panel (gRPC) -->
-        <div class="dept-header">
-          <span>KHOANG CACH PHUONG TIEN (gRPC)</span>
-        </div>
-        <div id="vehicle-list-panel" class="vehicle-list-panel">
-          <div class="see-more">Chua phat hien phuong tien</div>
-        </div>
+        <!-- Danh sách phòng ban / history -->
         <div class="dept-header">
           <span>LICH SU PHAN TICH</span>
         </div>
