@@ -49,7 +49,13 @@ def main():
     os.makedirs(args.save_dir, exist_ok=True)
 
     # Khai bao duong dan file tuong doi/tuyet doi trong workspace
-    base_data_path = r"d:\NguyenNgocAnh\multimodal-adas\services\lane-service\data\solesensei-bdd100k"
+    # __file__ la lane-service/app/training/train.py -> di len 3 cap de den lane-service/
+    lane_service_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    base_data_path = os.path.join(lane_service_dir, "data", "solesensei-bdd100k")
+    
+    # Neu chay tren Colab hoac thu muc khac, cho phep lay tu thu muc data cua training neu co
+    if not os.path.exists(base_data_path):
+        base_data_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "solesensei-bdd100k")
     
     train_img_dir = os.path.join(base_data_path, "bdd100k", "bdd100k", "images", "10k", "train")
     train_json = os.path.join(base_data_path, "bdd100k_labels_release", "bdd100k", "labels", "bdd100k_labels_images_train.json")
