@@ -29,11 +29,11 @@ class HoughLaneDetector:
     def __init__(
         self,
         canny_low: int = 60,
-        canny_high: int = 200,
+        canny_high: int = 255,
         hough_threshold: int = 40,
         min_line_length: int = 10,
         max_line_gap: int = 5,
-        roi_top_ratio: float = 0.60,
+        roi_top_ratio: float = 0.65,
         slope_min: float = 0.3,
         slope_max: float = 2.5,
     ):
@@ -82,10 +82,10 @@ class HoughLaneDetector:
         """
         y_top = int(h * self.roi_top_ratio)
         return np.array([[
-            (int(w * 0.10), h),           # Bottom-left
-            (int(w * 0.45), y_top),       # Top-left  (gần điểm tụ)
-            (int(w * 0.55), y_top),       # Top-right (gần điểm tụ)
-            (int(w * 0.90), h),           # Bottom-right
+            (int(w * 0.18), h),           # Bottom-left
+            (int(w * 0.43), y_top),       # Top-left  (gần điểm tụ)
+            (int(w * 0.57), y_top),       # Top-right (gần điểm tụ)
+            (int(w * 0.82), h),           # Bottom-right
         ]], dtype=np.int32)
 
     def _apply_roi(self, edge_map: np.ndarray, vertices: np.ndarray) -> np.ndarray:

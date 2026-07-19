@@ -17,6 +17,7 @@ from core.risk_analyzer import RiskAnalyzer
 from core.deeplab_segmenter import DeepLabSegmenter
 from core.traffic_sign_detector import TrafficSignDetector
 from core.geometry import LaneGeometry
+from core.hough_lane import HoughLaneDetector
 from core.fusion import DataFusion
 
 # Import RabbitMQ messaging components
@@ -44,6 +45,7 @@ class LanePipeline:
         self.traffic_sign_detector = traffic_sign_detector or TrafficSignDetector()
         self.deeplab = DeepLabSegmenter()
         self.geometry = LaneGeometry()
+        self.hough_detector = HoughLaneDetector()
         self.fusion = DataFusion()
         
         # Dynamic filter toggles
@@ -51,7 +53,8 @@ class LanePipeline:
             "lane_detection": True,
             "deeplab_segmentation": True,
             "vehicle_detection": True,
-            "traffic_sign_detection": True
+            "traffic_sign_detection": True,
+            "lane_mode": "hough"
         }
         
         # Frame counter and cache parameters
@@ -121,15 +124,38 @@ class LanePipeline:
 
         # 1. Lane detection
         if self.config.get("lane_detection", True):
-            # Tối ưu: Thu nhỏ ảnh trước khi đưa vào DeepLab để tăng FPS
-            small_frame = cv2.resize(frame, (640, 360))
-            drivable_mask_small, lane_mask_small = self.deeplab.segment(small_frame)
+            lane_mode = self.config.get("lane_mode", "hough")
             
-            # Phóng to kết quả lên bằng kích thước ban đầu (dùng INTER_NEAREST giữ nguyên giá trị 0/255)
-            drivable_mask = cv2.resize(drivable_mask_small, (width, height), interpolation=cv2.INTER_NEAREST)
-            lane_mask = cv2.resize(lane_mask_small, (width, height), interpolation=cv2.INTER_NEAREST)
-            
-            lane_info = self.geometry.analyze_lane(lane_mask)
+            if lane_mode == "hough":
+                hough_res = self.hough_detector.detect(frame)
+                left_line = hough_res.get("left_line")
+                right_line = hough_res.get("right_line")
+                lane_detected = hough_res.get("lane_detected", False)
+                
+                offset_m, direction = self.hough_detector.compute_offset(left_line, right_line, width)
+                lane_info = {
+                    "lane_detected": lane_detected,
+                    "lane_offset": offset_m if lane_detected else None,
+                    "direction": direction if lane_detected else "UNKNOWN",
+                    "left_line": left_line,
+                    "right_line": right_line,
+                }
+                
+                # Tạo mask vùng di chuyển tương đương bằng ROI của Hough
+                drivable_mask = np.zeros((height, width), dtype=np.uint8)
+                vertices = self.hough_detector._get_roi_vertices(height, width)
+                cv2.fillPoly(drivable_mask, vertices, 255)
+                lane_mask = hough_res.get("roi_image", np.zeros((height, width), dtype=np.uint8))
+            else:
+                # Tối ưu: Thu nhỏ ảnh trước khi đưa vào DeepLab để tăng FPS
+                small_frame = cv2.resize(frame, (640, 360))
+                drivable_mask_small, lane_mask_small = self.deeplab.segment(small_frame)
+                
+                # Phóng to kết quả lên bằng kích thước ban đầu (dùng INTER_NEAREST giữ nguyên giá trị 0/255)
+                drivable_mask = cv2.resize(drivable_mask_small, (width, height), interpolation=cv2.INTER_NEAREST)
+                lane_mask = cv2.resize(lane_mask_small, (width, height), interpolation=cv2.INTER_NEAREST)
+                
+                lane_info = self.geometry.analyze_lane(lane_mask)
         else:
             drivable_mask = np.zeros((height, width), dtype=np.uint8)
             lane_mask = np.zeros((height, width), dtype=np.uint8)
@@ -297,42 +323,72 @@ class LanePipeline:
 
         # 5. Vẽ trực quan hóa lên luồng phát livestream / video output
         if visualize:
-            # Vẽ vùng di chuyển được sạch (màu xanh lá)
-            overlay = frame.copy()
-            overlay[fused_drivable == 255] = [0, 255, 0]
-            cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
-
-            # Vẽ vạch kẻ đường biên trái (màu xanh dương) và biên phải (màu đỏ) dưới dạng đường cong mượt mà
-            if self.config.get("lane_detection", True) and lane_info.get("lane_detected", False):
-                left_fitx = lane_info.get("left_fitx")
-                right_fitx = lane_info.get("right_fitx")
-                ploty = lane_info.get("ploty")
+            lane_mode = self.config.get("lane_mode", "hough")
+            
+            if lane_mode == "hough":
+                left_line = lane_info.get("left_line")
+                right_line = lane_info.get("right_line")
                 
-                if left_fitx is not None and right_fitx is not None and ploty is not None:
-                    # Lấy vùng vẽ khớp chính xác với ROI (từ 62% chiều cao ảnh xuống)
-                    y_start = int(height * 0.62)
-                    mask_y = ploty >= y_start
-                    ploty_clip = ploty[mask_y]
-                    left_clip = left_fitx[mask_y]
-                    right_clip = right_fitx[mask_y]
+                # Vẽ vùng di chuyển màu xanh lá (fillPoly giữa 2 vạch thẳng)
+                if left_line and right_line:
+                    pts = np.array([
+                        [left_line[0],  left_line[1]],
+                        [left_line[2],  left_line[3]],
+                        [right_line[2], right_line[3]],
+                        [right_line[0], right_line[1]],
+                    ], dtype=np.int32)
+                    overlay = frame.copy()
+                    cv2.fillPoly(overlay, [pts], (0, 255, 0))
+                    cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
+                else:
+                    # Fallback vẽ fused_drivable
+                    overlay = frame.copy()
+                    overlay[fused_drivable == 255] = [0, 255, 0]
+                    cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
+                
+                # Vẽ vạch kẻ đường biên trái (màu xanh dương BGR = (255, 0, 0)) và biên phải (màu đỏ BGR = (0, 0, 255))
+                if self.config.get("lane_detection", True):
+                    if left_line:
+                        cv2.line(frame, (left_line[0], left_line[1]), (left_line[2], left_line[3]), (255, 0, 0), 4, cv2.LINE_AA)
+                    if right_line:
+                        cv2.line(frame, (right_line[0], right_line[1]), (right_line[2], right_line[3]), (0, 0, 255), 4, cv2.LINE_AA)
+            else:
+                # Vẽ vùng di chuyển được sạch (màu xanh lá)
+                overlay = frame.copy()
+                overlay[fused_drivable == 255] = [0, 255, 0]
+                cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
+
+                # Vẽ vạch kẻ đường biên trái (màu xanh dương) và biên phải (màu đỏ) dưới dạng đường cong mượt mà
+                if self.config.get("lane_detection", True) and lane_info.get("lane_detected", False):
+                    left_fitx = lane_info.get("left_fitx")
+                    right_fitx = lane_info.get("right_fitx")
+                    ploty = lane_info.get("ploty")
                     
-                    pts_l = []
-                    pts_r = []
-                    # Duyệt qua các điểm để warp ngược về ảnh gốc
-                    for y_val, lx, rx in zip(ploty_clip, left_clip, right_clip):
-                        pt_l = self.geometry._warp_point_inv((int(lx), int(y_val)), (width, height))
-                        pt_r = self.geometry._warp_point_inv((int(rx), int(y_val)), (width, height))
-                        if pt_l:
-                            pts_l.append(pt_l)
-                        if pt_r:
-                            pts_r.append(pt_r)
-                            
-                    if len(pts_l) > 1:
-                        pts_l = np.array(pts_l, dtype=np.int32)
-                        cv2.polylines(frame, [pts_l], False, (255, 0, 0), 3, cv2.LINE_AA) # Blue
-                    if len(pts_r) > 1:
-                        pts_r = np.array(pts_r, dtype=np.int32)
-                        cv2.polylines(frame, [pts_r], False, (0, 0, 255), 3, cv2.LINE_AA) # Red
+                    if left_fitx is not None and right_fitx is not None and ploty is not None:
+                        # Lấy vùng vẽ khớp chính xác với ROI (từ 62% chiều cao ảnh xuống)
+                        y_start = int(height * 0.62)
+                        mask_y = ploty >= y_start
+                        ploty_clip = ploty[mask_y]
+                        left_clip = left_fitx[mask_y]
+                        right_clip = right_fitx[mask_y]
+                        
+                        pts_l = []
+                        pts_r = []
+                        # Duyệt qua các điểm để warp ngược về ảnh gốc
+                        for y_val, lx, rx in zip(ploty_clip, left_clip, right_clip):
+                            pt_l = self.geometry._warp_point_inv((int(lx), int(y_val)), (width, height))
+                            pt_r = self.geometry._warp_point_inv((int(rx), int(y_val)), (width, height))
+                            if pt_l:
+                                pts_l.append(pt_l)
+                            if pt_r:
+                                pts_r.append(pt_r)
+                                
+                        if len(pts_l) > 1:
+                            pts_l = np.array(pts_l, dtype=np.int32)
+                            cv2.polylines(frame, [pts_l], False, (255, 0, 0), 3, cv2.LINE_AA) # Blue
+                        if len(pts_r) > 1:
+                            pts_r = np.array(pts_r, dtype=np.int32)
+                            cv2.polylines(frame, [pts_r], False, (0, 0, 255), 3, cv2.LINE_AA) # Red
 
             # Vẽ bounding boxes và khoảng cách của phương tiện từ gRPC
             for obj in grpc_objects:

@@ -22,7 +22,8 @@
 ## 5. Ràng buộc
 - Phải đảm bảo kiểm tra giao cắt trên toàn bộ tập điểm vẽ `ploty` hoặc lưới điểm chia dày (dense check) thay vì chỉ kiểm tra 2 đầu mút `y = 0` và `y = h - 1`.
 - Không làm giảm hiệu suất xử lý (FPS) của luồng video thời gian thực.
-- Cắt giảm chiều cao vùng nhận diện (ROI) ở phía trên xuống khoảng một nửa (giới hạn từ 75% - 76% chiều cao khung hình trở xuống) để loại bỏ hoàn toàn nhiễu từ khung vòm thép và lan can của các cầu.
+- Cắt giảm chiều cao vùng nhận diện (ROI) ở phía trên xuống mức 2/3 chiều cao khung hình (khoảng 0.65 - 0.67) để loại bỏ nhiễu phía trên và khớp đúng hướng dẫn tham khảo.
+- Sử dụng trực tiếp ảnh cạnh Canny (Canny Edge Map) kết hợp giãn nở (Dilation) và lọc màu HSV để tăng cường mật độ pixel cho vạch kẻ đường, đảm bảo không bị trống thông tin vạch kẻ.
 - Hệ thống phải tự động phát hiện và đảo ngược (swap) lại vạch kẻ đường nếu vạch trái và vạch phải bị nhận diện ngược bên nhau ở đáy ảnh.
 - Thuật toán cửa sổ trượt phải có ràng buộc dịch chuyển ngang tối đa giữa các bước liên tiếp để tránh việc cửa sổ nhảy sang làn đối diện do nhiễu đốm sáng hoặc bóng xe.
 - Các vạch kẻ đường vẽ trên màn hình HUD phải được vẽ dưới dạng đường cong mượt (cv2.polylines) khớp chính xác với biên của vùng di chuyển an toàn (Drivable Area) thay vì vẽ các đoạn thẳng thô nối hai đầu mút làm lệch hiển thị.
